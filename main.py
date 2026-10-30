@@ -3,29 +3,35 @@ Masterprojekt - Prognose von Aktienrenditen mit baumbasierten Modellen.
 
 Vorgehen wie bei Lewellen (2015), "The Cross-Section of Expected Stock Returns",
 mit Machine-Learning-Modellen anstelle der linearen Regression:
-    1. JKP-Daten laden (eine Zeile pro Monat und Aktie), pro Monat die 500
-       größten Aktien mit Werten für alle Charakteristika
-    2. Fama-MacBeth-Schätzung: in jedem Monat ein Modell auf dem Querschnitt
-       (n Aktien x T Charakteristika) trainieren; die erwartete Rendite einer
-       Aktie ist das Mittel der Prognosen der Monatsmodelle der letzten 10 Jahre
-       (bei der linearen Regression identisch mit den gemittelten Steigungen
-       im Paper - OLS läuft daher als Benchmark mit)
-    3. Das Modell aus dem Paper: Fama-MacBeth-Regressionen auf der Stichprobe (Tabelle 2)
-    4. Prognosen evaluieren wie im Paper: Verteilung der Prognosen und
-       Out-of-Sample-Fama-MacBeth-Regression der Renditen auf die Prognosen (Tabelle 3)
+    1. Daten: JKP-Daten laden (eine Zeile pro Monat und Aktie), pro Monat die
+       500 größten Aktien mit Werten für alle Charakteristika
+    2. Schätzung: in jedem Monat ein Modell auf dem Querschnitt trainieren
+       (500 Aktien x 14 Charakteristika -> Rendite im Folgemonat); die erwartete
+       Rendite einer Aktie ist das Mittel der Prognosen der Monatsmodelle der
+       letzten 10 Jahre. Bei der linearen Regression (OLS) ist das genau das
+       Verfahren aus dem Paper - OLS läuft daher als Benchmark mit.
+    3. Das Modell aus dem Paper: Fama-MacBeth-Regressionen (Tabelle 2)
+    4. Güte der Prognosen: Verteilung und Out-of-Sample-Regression der
+       realisierten Renditen auf die Prognosen (Tabelle 3)
     5. Nach der Prognose sortierte Dezilportfolios (Tabelle 6)
-    6. Handelsstrategie simulieren (Long Top x % / Short Bottom y %)
-       und mit einem gleichgewichteten Portfolio (Equal Weight) vergleichen
-Jeder Schritt ist eine Funktion unten in dieser Datei; main() ruft sie nacheinander auf.
-Die Statistik (Regressionen, Newey-West-Standardfehler) rechnet statsmodels.
+    6. Handelsstrategie (Long Top 20 %) im Vergleich zu Equal Weight
+
+Jeder Schritt ist eine Funktion unten in dieser Datei; main() ganz unten ruft
+sie nacheinander auf. Die eigentliche Rechnung steht in:
+    dataset.py     Schritt 1  (Daten laden, Stichprobe)
+    models.py      Schritt 2  (Modelle, Fama-MacBeth-Schätzung)
+    evaluation.py  Schritte 3-6  (Regressionen, Tabellen, Strategie)
+    report.py      Ausgabe von Tabellen und Grafik
 """
 
 import os
 
 import pandas as pd
 
+import dataset
+import evaluation
 import models
-import util
+import report
 
 # Ordner von main.py: alle Pfade beziehen sich darauf, egal von wo das Skript gestartet wird
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -45,7 +51,7 @@ ESTIMATION = "fama_macbeth"  # "fama_macbeth": pro Monat ein Modell auf dem Quer
                              # "pooled": ein Modell auf allen gestapelten Querschnitten des Fensters
 WINDOW_TYPE = "rolling"      # "rolling": die letzten TRAIN_WINDOW Monate (Paper: Hauptergebnis)
                              # "expanding": alle Monate seit Beginn der Daten (Paper: "cumulative")
-TRAIN_WINDOW = 120           # Fensterlänge in Monaten (Paper: 10 Jahre, Alternativen 12, 36, 60, 84);
+TRAIN_WINDOW = 120           # Fensterlänge in Monaten (Paper: 10 Jahre);
                              # bei "expanding" die Mindestlänge vor der ersten Prognose
 TEST_START = "1974-01-01"    # erster Prognosemonat (Paper: 1974)
 TEST_END = "2013-12-31"      # letzter Prognosemonat (Paper: 2013; None: bis zum Ende der Daten, 2024)
@@ -63,7 +69,7 @@ SHOW_PLOT = True             # Grafik zusätzlich in einem Fenster anzeigen
 # --- Feste Werte (normalerweise nicht ändern) ---------------------------------
 DATE_COL = "eom"             # Monatsende
 ID_COL = "id"                # JKP-ID der Aktie
-TARGET_COL = "ret_exc_lead1m"  # Überrendite über den NÄCHSTEN Monat
+TARGET_COL = "ret_exc_lead1m"  # Überrendite über den NÄCHSTEN Monat (das wird prognostiziert)
 SIZE_COL = "me"              # Marktkapitalisierung (untransformiert): Universum und wertgewichtete Portfolios
 TARGET_IS_EXCESS = True      # Zielgröße ist bereits eine Überrendite -> rf wird nicht nochmal abgezogen
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
@@ -93,7 +99,7 @@ def load_sample():
 
     Rückgabe: (Daten, Liste der Charakteristika, risikofreier Zins oder None).
     """
-    util.print_section("1. Data")
+    report.print_section("1. Data")
 
     # Import-Einstellungen: pro Monat die `top_k` größten Aktien nach Marktkapitalisierung, mit ihren Daten
     # der `years_before` Jahre davor (max. Trainingszeitraum) und der `years_after` Jahre danach (max.
@@ -114,21 +120,21 @@ def load_sample():
 
     # --- Daten laden (Dummy-Daten, vorbereitete CSV oder einmalig aus der Parquet-Datei bauen) ---
     if USE_DUMMY_DATA:
-        df = util.make_dummy_data(seed=42, date_col=DATE_COL, id_col=ID_COL,
-                                  target_col=TARGET_COL, size_col=SIZE_COL)
+        df = dataset.make_dummy_data(seed=42, date_col=DATE_COL, id_col=ID_COL,
+                                     target_col=TARGET_COL, size_col=SIZE_COL)
     elif os.path.exists(prepared_path):
         print(f"  Loading prepared data '{os.path.relpath(prepared_path, BASE_DIR)}'")
-        df = util.load_prepared_data(prepared_path, DATE_COL)
+        df = dataset.load_prepared_data(prepared_path, DATE_COL)
     else:
         print(f"  Building prepared data from '{os.path.relpath(data_path, BASE_DIR)}' (about 1 minute) ...")
-        df = util.load_data(data_path, top_k, years_before, years_after, transform)
-        util.save_prepared_data(df, prepared_path)
+        df = dataset.load_data(data_path, top_k, years_before, years_after, transform)
+        dataset.save_prepared_data(df, prepared_path)
         print(f"  Saved to '{os.path.relpath(prepared_path, BASE_DIR)}'")
 
     # --- Charakteristika wählen (die Dummy-Daten haben eigene Spaltennamen) ---
     use_feature_set = FEATURE_SET and not USE_DUMMY_DATA
     if use_feature_set:
-        feature_cols = util.LEWELLEN_MODELS[FEATURE_SET]
+        feature_cols = dataset.LEWELLEN_MODELS[FEATURE_SET]
     else:
         exclude = [DATE_COL, ID_COL, TARGET_COL, SIZE_COL]
         feature_cols = [c for c in df.columns if c not in exclude]
@@ -136,11 +142,11 @@ def load_sample():
     # --- Stichprobe bilden (die Dummy-Daten haben eigene Zeiträume ab 2010, daher kein Startdatum) ---
     if USE_DUMMY_DATA:
         sample_start = None
-    df = util.prepare_data(df, DATE_COL, ID_COL, TARGET_COL, feature_cols)
+    df = dataset.prepare_data(df, DATE_COL, ID_COL, TARGET_COL, feature_cols)
     print(f"  {len(df):,} rows | {df[ID_COL].nunique():,} stocks in total | {df[DATE_COL].nunique()} periods "
-          f"({util.fmt_date(df[DATE_COL].min())} - {util.fmt_date(df[DATE_COL].max())})")
-    df = util.select_sample(df, DATE_COL, SIZE_COL, feature_cols, sample_start, True, UNIVERSE_SIZE)
-    print(f"  Sample from {util.fmt_date(df[DATE_COL].min())}: {len(feature_cols)} characteristics "
+          f"({report.fmt_date(df[DATE_COL].min())} - {report.fmt_date(df[DATE_COL].max())})")
+    df = dataset.select_sample(df, DATE_COL, SIZE_COL, feature_cols, sample_start, True, UNIVERSE_SIZE)
+    print(f"  Sample from {report.fmt_date(df[DATE_COL].min())}: {len(feature_cols)} characteristics "
           f"({FEATURE_SET if use_feature_set else 'all columns'}), stocks with missing values removed")
     if UNIVERSE_SIZE:
         print(f"  Universe: {UNIVERSE_SIZE} largest stocks per month by '{SIZE_COL}'")
@@ -150,7 +156,7 @@ def load_sample():
     if TARGET_IS_EXCESS:
         print("  Risk-free rate: not needed - the target already is an excess return")
     else:
-        rf = util.load_risk_free(risk_free_path, df[DATE_COL].unique())
+        rf = dataset.load_risk_free(risk_free_path, df[DATE_COL].unique())
         if rf is None:
             print(f"  Risk-free rate: not available ('{risk_free_path}') - Sharpe ratios use raw returns")
         else:
@@ -164,7 +170,16 @@ def estimate(df, feature_cols):
 
     Rückgabe: (Prognosen, Feature Importances, gewählte Hyperparameter).
     """
-    # Hyperparameter pro Modell (fest, solange GRID_SEARCH = False); random_state = Seed für reproduzierbare Ergebnisse
+    # Hyperparameter pro Modell (fest, solange GRID_SEARCH = False). Sie begrenzen, wie fein ein Baum die
+    # Aktien aufteilen darf - je feiner, desto eher lernt er Zufallsrauschen statt echter Zusammenhänge:
+    #   max_depth         maximale Anzahl Ja/Nein-Fragen hintereinander (Tiefe des Baums)
+    #   min_samples_leaf  mindestens so viele Aktien pro Endknoten (Blatt); dessen Prognose ist ihre Durchschnittsrendite
+    #   n_estimators      Anzahl der Bäume (Random Forest, XGBoost)
+    #   max_features      Random Forest: Anteil der Charakteristika, aus denen bei jeder Frage gewählt wird
+    #                     ("sqrt": Wurzel aus 14, also 3 zufällige) - macht die Bäume verschieden
+    #   learning_rate     XGBoost: mit welchem Gewicht jeder neue Baum in die Prognose eingeht
+    #   subsample, colsample_bytree  XGBoost: zufälliger Anteil der Aktien bzw. Charakteristika je Baum
+    # random_state ist der Startwert des Zufallsgenerators: gleiche Ergebnisse bei jedem Lauf.
     random_state = 42
     model_params = {
         "OLS": {},
@@ -199,15 +214,14 @@ def estimate(df, feature_cols):
     )
     grid = ", grid search" if GRID_SEARCH else ""
     if ESTIMATION == "fama_macbeth":
-        util.print_section(f"2. Fama-MacBeth estimation: one model per month, "
-                           f"forecasts averaged over a {window_label()}{grid}")
+        report.print_section(f"2. Fama-MacBeth estimation: one model per month, "
+                             f"forecasts averaged over a {window_label()}{grid}")
         preds, importances, best_params = models.run_fama_macbeth(df, **args)
     else:
-        util.print_section(f"2. Pooled estimation: one model per {window_label()}{grid}")
-        preds, importances, best_params = models.run_pooled(
-            df, **args, retrain_every=retrain_every)
+        report.print_section(f"2. Pooled estimation: one model per {window_label()}{grid}")
+        preds, importances, best_params = models.run_pooled(df, **args, retrain_every=retrain_every)
 
-    print(f"  Forecasts: {util.fmt_date(preds[DATE_COL].min())} - {util.fmt_date(preds[DATE_COL].max())} | "
+    print(f"  Forecasts: {report.fmt_date(preds[DATE_COL].min())} - {report.fmt_date(preds[DATE_COL].max())} | "
           f"{preds[DATE_COL].nunique()} months | {preds.groupby(DATE_COL).size().mean():.0f} stocks per month")
     if not best_params.empty:
         print("\n  Most frequently chosen hyperparameters:")
@@ -216,7 +230,7 @@ def estimate(df, feature_cols):
             print(f"  {name:<13} {counts.index[0]}  ({counts.iloc[0]} of {len(g)})")
     if not importances.empty:
         print("\n  Top 10 features (mean importance over all models of the tree methods):")
-        util.print_table(importances.loc[importances.mean(axis=1).nlargest(10).index], decimals=4)
+        report.print_table(importances.loc[importances.mean(axis=1).nlargest(10).index], decimals=4)
     return preds, importances, best_params
 
 
@@ -226,13 +240,13 @@ def paper_regressions(df, feature_cols, preds):
     Verwendet alle Monate, deren Regressionen in die Prognosen eingehen (Paper: 1964-2013).
     Rückgabe: (Tabelle der mittleren Koeffizienten, monatliche Koeffizienten).
     """
-    util.print_section("3. Fama-MacBeth regressions - the model of the paper (Lewellen Table 2)")
-    table, monthly = util.fama_macbeth(df[df[DATE_COL] < preds[DATE_COL].max()], TARGET_COL,
-                                       feature_cols, DATE_COL)
+    report.print_section("3. Fama-MacBeth regressions - the model of the paper (Lewellen Table 2)")
+    table, monthly = evaluation.fama_macbeth(df[df[DATE_COL] < preds[DATE_COL].max()], TARGET_COL,
+                                             feature_cols, DATE_COL)
     table[["Coef", "S.E."]] *= 100  # in % pro Monat, wie im Paper
-    util.print_table(table)
-    print(f"  {len(monthly)} monthly regressions ({util.fmt_date(monthly.index[0])} - "
-          f"{util.fmt_date(monthly.index[-1])}) | mean R2 {monthly['R2'].mean():.3f} | "
+    report.print_table(table)
+    print(f"  {len(monthly)} monthly regressions ({report.fmt_date(monthly.index[0])} - "
+          f"{report.fmt_date(monthly.index[-1])}) | mean R2 {monthly['R2'].mean():.3f} | "
           f"mean N {monthly['N'].mean():.0f}\n"
           "  Coef in % per month (with rank characteristics: return difference between the lowest and\n"
           "  the highest ranked stock) | S.E. and t-stat with Newey-West standard errors")
@@ -246,36 +260,36 @@ def evaluate_forecasts(preds):
 
     Rückgabe: (Tabelle 3, weitere Prognosekennzahlen, Korrelationen der Prognosen oder None).
     """
-    util.print_section("4. Expected-return estimates (Lewellen Table 3)")
-    evaluation = pd.DataFrame({name: util.forecast_evaluation(preds, name, TARGET_COL, DATE_COL)
-                               for name in MODELS_TO_RUN}).T
-    util.print_table(evaluation, util.EVALUATION_FORMATS)
+    report.print_section("4. Expected-return estimates (Lewellen Table 3)")
+    table3 = pd.DataFrame({name: evaluation.forecast_evaluation(preds, name, TARGET_COL, DATE_COL)
+                           for name in MODELS_TO_RUN}).T
+    report.print_table(table3, report.EVALUATION_FORMATS)
     print("  Avg/Std/p10/p90: cross-sectional distribution of the forecasts (% per month)\n"
           "  Slope/S.E./t-stat/R2: out-of-sample FM regression of realized returns on the forecasts\n"
           "  (slope 1 = unbiased forecast, slope > 0 = the forecast separates high and low returns)")
 
     print("\n  Further prediction metrics:")
-    metrics = pd.DataFrame({name: util.prediction_metrics(preds, name, TARGET_COL, DATE_COL)
+    metrics = pd.DataFrame({name: evaluation.prediction_metrics(preds, name, TARGET_COL, DATE_COL)
                             for name in MODELS_TO_RUN}).T
-    util.print_table(metrics, decimals=4)
+    report.print_table(metrics, decimals=4)
 
     correlations = None
     if len(MODELS_TO_RUN) > 1:
-        correlations = util.forecast_correlations(preds, MODELS_TO_RUN, DATE_COL)
+        correlations = evaluation.forecast_correlations(preds, MODELS_TO_RUN, DATE_COL)
         print("\n  Mean cross-sectional correlation of the forecasts (cf. Lewellen Table 4):")
-        util.print_table(correlations)
-    return evaluation, metrics, correlations
+        report.print_table(correlations)
+    return table3, metrics, correlations
 
 
 def portfolio_sorts(preds):
     """Schritt 5: nach der Prognose sortierte Portfolios (Lewellen, Tabelle 6). Rückgabe: Tabelle pro Modell."""
     n_portfolios = 10  # Anzahl der nach Prognose sortierten Portfolios (Paper: Dezile)
-    util.print_section(f"5. Portfolios sorted by expected return (Lewellen Table 6, {n_portfolios} groups)")
-    portfolios = {name: util.sorted_portfolios(preds, name, TARGET_COL, DATE_COL, SIZE_COL, n_portfolios)
+    report.print_section(f"5. Portfolios sorted by expected return (Lewellen Table 6, {n_portfolios} groups)")
+    portfolios = {name: evaluation.sorted_portfolios(preds, name, TARGET_COL, DATE_COL, SIZE_COL, n_portfolios)
                   for name in MODELS_TO_RUN}
     for name, table in portfolios.items():
         print(f"\n  {name}")
-        util.print_table(table)
+        report.print_table(table)
     print("\n  EW/VW: equal-/value-weighted | Pred/Avg/Std in % per month | Sharpe annualized | "
           "t-stat with Newey-West SE")
     return portfolios
@@ -286,18 +300,19 @@ def trading_strategy(preds, rf):
 
     Rückgabe: (Renditen pro Monat und Strategie, Performance-Kennzahlen).
     """
-    util.print_section(f"6. Trading strategy: {util.strategy_label(LONG_PCT, SHORT_PCT)}")
-    returns = pd.DataFrame({name: util.strategy_returns(preds, name, TARGET_COL, DATE_COL, LONG_PCT, SHORT_PCT)
+    report.print_section(f"6. Trading strategy: {evaluation.strategy_label(LONG_PCT, SHORT_PCT)}")
+    returns = pd.DataFrame({name: evaluation.strategy_returns(preds, name, TARGET_COL, DATE_COL,
+                                                              LONG_PCT, SHORT_PCT)
                             for name in MODELS_TO_RUN})
     # Benchmark: alle Aktien des Universums gleichgewichtet
-    returns["Equal Weight"] = util.equal_weight_returns(preds, TARGET_COL, DATE_COL)
+    returns["Equal Weight"] = evaluation.equal_weight_returns(preds, TARGET_COL, DATE_COL)
 
     # ein Long-Short-Portfolio ist selbstfinanzierend, seine Rendite ist daher bereits eine Überrendite
     zero_cost = LONG_PCT > 0 and SHORT_PCT > 0
-    perf = pd.DataFrame({name: util.performance_metrics(returns[name], 12,
-                                                        rf=None if zero_cost and name in MODELS_TO_RUN else rf)
+    perf = pd.DataFrame({name: evaluation.performance_metrics(
+                             returns[name], 12, rf=None if zero_cost and name in MODELS_TO_RUN else rf)
                          for name in returns}).T
-    util.print_table(perf, util.PERFORMANCE_FORMATS)
+    report.print_table(perf, report.PERFORMANCE_FORMATS)
     return returns, perf
 
 
@@ -312,14 +327,14 @@ def save_results(results):
 
 def plot_strategy(returns, perf):
     """Grafik: Wertentwicklung der Strategien mit Kennzahlentabelle (gespeichert und/oder angezeigt)."""
-    subtitle = [f"{util.strategy_label(LONG_PCT, SHORT_PCT)} by predicted return"]
+    subtitle = [f"{evaluation.strategy_label(LONG_PCT, SHORT_PCT)} by predicted return"]
     if UNIVERSE_SIZE:
         subtitle.append(f"top {UNIVERSE_SIZE} stocks")
     subtitle.append(f"{'Fama-MacBeth' if ESTIMATION == 'fama_macbeth' else 'pooled'}, {window_label()}")
     if TARGET_IS_EXCESS:
         subtitle.append("excess returns")
-    subtitle.append(f"{util.fmt_date(returns.index[0])} - {util.fmt_date(returns.index[-1])}")
-    util.plot_performance(
+    subtitle.append(f"{report.fmt_date(returns.index[0])} - {report.fmt_date(returns.index[-1])}")
+    report.plot_performance(
         returns, perf,
         title="Strategy performance vs. equal weight",
         subtitle=" | ".join(subtitle),
@@ -330,12 +345,12 @@ def plot_strategy(returns, perf):
 
 def main():
     check_settings()
-    df, feature_cols, rf = load_sample()
-    preds, importances, best_params = estimate(df, feature_cols)
-    fm_table, fm_monthly = paper_regressions(df, feature_cols, preds)
-    evaluation, metrics, correlations = evaluate_forecasts(preds)
-    portfolios = portfolio_sorts(preds)
-    strategy, perf = trading_strategy(preds, rf)
+    df, feature_cols, rf = load_sample()                       # Schritt 1
+    preds, importances, best_params = estimate(df, feature_cols)  # Schritt 2
+    fm_table, fm_monthly = paper_regressions(df, feature_cols, preds)  # Schritt 3
+    table3, metrics, correlations = evaluate_forecasts(preds)  # Schritt 4
+    portfolios = portfolio_sorts(preds)                        # Schritt 5
+    strategy, perf = trading_strategy(preds, rf)               # Schritt 6
 
     if SAVE_RESULTS:
         save_results({
@@ -344,7 +359,7 @@ def main():
             "best_params": best_params.set_index([DATE_COL, "model"]) if not best_params.empty else None,
             "fama_macbeth_regressions": fm_table,
             "fama_macbeth_monthly_coefficients": fm_monthly,
-            "forecast_evaluation": evaluation,
+            "forecast_evaluation": table3,
             "prediction_metrics": metrics,
             "forecast_correlations": correlations,
             "sorted_portfolios": pd.concat(portfolios, names=["model", "portfolio"]),

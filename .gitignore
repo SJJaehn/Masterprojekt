@@ -183,3 +183,6 @@ cython_debug/
 # Rohdaten vom Tutor (6 GB, lizenzierte JKP-Daten) - nicht ins Repository
 Thema 3 - Stock Return Prediction/DATA/
 .DS_Store
+
+# Ergebnisse von main.py
+output/
