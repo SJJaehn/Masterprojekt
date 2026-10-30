@@ -179,3 +179,7 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# Rohdaten vom Tutor (6 GB, lizenzierte JKP-Daten) - nicht ins Repository
+Thema 3 - Stock Return Prediction/DATA/
+.DS_Store
