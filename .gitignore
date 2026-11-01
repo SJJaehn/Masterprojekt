@@ -184,5 +184,3 @@ cython_debug/
 Thema 3 - Stock Return Prediction/DATA/
 .DS_Store
 
-# Ergebnisse von main.py
-output/

@@ -136,26 +136,10 @@ def sorted_portfolios(preds, pred_col, target_col, date_col, size_col=None, n_gr
     - t-stat: Newey-West-t-Statistik für eine mittlere Rendite > 0
     H-L ist das Long-Short-Portfolio High minus Low.
     """
-    # Portfolio 1 ... n_groups pro Monat (rank: gleiche Prognosen werden auf die Portfolios verteilt)
-    df = preds.copy()
-    df["portfolio"] = df.groupby(date_col)[pred_col].transform(
-        lambda s: pd.qcut(s.rank(method="first"), n_groups, labels=False) + 1)
-    grouped = df.groupby([date_col, "portfolio"])
-
     weightings = {"EW": None, "VW": size_col} if size_col else {"EW": None}
     tables = {}
     for weighting, weight_col in weightings.items():
-        # mittlere Prognose und mittlere Rendite je Monat und Portfolio (gleich- oder wertgewichtet)
-        if weight_col:
-            means = grouped.apply(lambda g: pd.Series(
-                {c: np.average(g[c], weights=g[weight_col]) for c in (pred_col, target_col)}),
-                include_groups=False)
-        else:
-            means = grouped[[pred_col, target_col]].mean()
-        pred, ret = means[pred_col].unstack(), means[target_col].unstack()  # Monate x Portfolios
-        pred["H-L"] = pred[n_groups] - pred[1]
-        ret["H-L"] = ret[n_groups] - ret[1]
-
+        pred, ret = portfolio_returns(preds, pred_col, target_col, date_col, weight_col, n_groups)
         tables[weighting] = pd.DataFrame({
             "Pred (%)": pred.mean() * 100,
             "Avg (%)": ret.mean() * 100,
@@ -166,6 +150,74 @@ def sorted_portfolios(preds, pred_col, target_col, date_col, size_col=None, n_gr
     table = pd.concat(tables, axis=1).rename(index={1: "Low (L)", n_groups: "High (H)"})
     table.index = table.index.astype(str)
     return table
+
+
+def portfolio_returns(preds, pred_col, target_col, date_col, weight_col=None, n_groups=10):
+    """Monatliche Prognose und Rendite der nach der Prognose sortierten Portfolios.
+
+    Jeden Monat werden die Aktien nach ihrer Prognose in `n_groups` gleich große
+    Portfolios eingeteilt (1 = niedrigste Prognose); gleichgewichtet oder, mit
+    `weight_col`, nach Marktkapitalisierung gewichtet. Rückgabe: (Prognosen,
+    Renditen), je eine Tabelle Monate x Portfolios plus Spalte H-L (High minus Low).
+    """
+    # Portfolio 1 ... n_groups pro Monat (rank: gleiche Prognosen werden auf die Portfolios verteilt)
+    df = preds.copy()
+    df["portfolio"] = df.groupby(date_col)[pred_col].transform(
+        lambda s: pd.qcut(s.rank(method="first"), n_groups, labels=False) + 1)
+    grouped = df.groupby([date_col, "portfolio"])
+
+    # mittlere Prognose und mittlere Rendite je Monat und Portfolio (gleich- oder wertgewichtet)
+    if weight_col:
+        means = grouped.apply(lambda g: pd.Series(
+            {c: np.average(g[c], weights=g[weight_col]) for c in (pred_col, target_col)}),
+            include_groups=False)
+    else:
+        means = grouped[[pred_col, target_col]].mean()
+    pred, ret = means[pred_col].unstack(), means[target_col].unstack()  # Monate x Portfolios
+    pred["H-L"] = pred[n_groups] - pred[1]
+    ret["H-L"] = ret[n_groups] - ret[1]
+    return pred, ret
+
+
+# =============================================================================
+# Entwicklung über die Zeit (Lewellen, Abschnitt 3.6 und Fig. 2)
+# =============================================================================
+
+def monthly_slopes(preds, pred_col, target_col, date_col):
+    """Steigung der Querschnittsregression realisierte Rendite = a + b * Prognose, für jeden Monat einzeln.
+
+    Der Mittelwert dieser Reihe ist die Steigung aus Tabelle 3; die Reihe selbst
+    zeigt, wie gut die Prognosen in jedem einzelnen Monat waren.
+    """
+    _, monthly = fama_macbeth(preds, target_col, [pred_col], date_col)
+    return monthly[pred_col]
+
+
+def trend_test(series, split_date, nw_lags=4):
+    """Gibt es einen Abwärtstrend? Zwei einfache Tests für eine monatliche Reihe.
+
+    1. Hälftenvergleich: Mittelwert vor und ab `split_date` und die Differenz
+       (Regression auf eine Dummy-Variable für die zweite Hälfte)
+    2. Linearer Trend: Regression auf die Zeit in Jahrzehnten; die Steigung ist
+       die Veränderung des Mittelwerts pro 10 Jahre
+    Beide mit Newey-West-Standardfehlern (`nw_lags` Lags, wie im Paper).
+    Ein negativer Wert mit |t| > 2 spricht für einen signifikanten Rückgang.
+    """
+    y = series.dropna()
+    second_half = (y.index >= pd.Timestamp(split_date)).astype(float)
+    decades = (y.index - y.index[0]).days / 3652.5
+    hac = {"cov_type": "HAC", "cov_kwds": {"maxlags": nw_lags}}
+
+    halves = sm.OLS(y.to_numpy(), sm.add_constant(second_half)).fit(**hac)
+    trend = sm.OLS(y.to_numpy(), sm.add_constant(np.asarray(decades))).fit(**hac)
+    return {
+        "Mean 1st half": y[second_half == 0].mean(),
+        "Mean 2nd half": y[second_half == 1].mean(),
+        "Difference": halves.params[1],
+        "t-stat diff": halves.tvalues[1],
+        "Trend per decade": trend.params[1],
+        "t-stat trend": trend.tvalues[1],
+    }
 
 
 # =============================================================================

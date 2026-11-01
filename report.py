@@ -107,7 +107,7 @@ def plot_performance(returns, perf, benchmark="Equal Weight", title="", subtitle
 
     ax.legend(loc="best", frameon=False, fontsize=9, labelcolor=TEXT_PRIMARY)
     if title:
-        ax.set_title(title, loc="left", fontsize=13, fontweight="semibold",
+        ax.set_title(title, loc="left", fontsize=13, fontweight="bold",
                      color=TEXT_PRIMARY, pad=24 if subtitle else 8)
     if subtitle:
         ax.text(0, 1.02, subtitle, transform=ax.transAxes, fontsize=10, color=TEXT_SECONDARY)
@@ -125,12 +125,55 @@ def plot_performance(returns, perf, benchmark="Equal Weight", title="", subtitle
         cell.visible_edges = "B"
         cell.get_text().set_color(TEXT_SECONDARY if row == 0 else TEXT_PRIMARY)
         if row == 0:
-            cell.get_text().set_fontweight("semibold")
+            cell.get_text().set_fontweight("bold")
         if col == 0:
             cell.get_text().set_horizontalalignment("left")
 
     # 8. Speichern / anzeigen
     fig.subplots_adjust(left=0.08, right=0.84, top=0.9, bottom=0.04)
+    if save_path:
+        fig.savefig(save_path, dpi=150, facecolor=SURFACE)
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
+def plot_time_variation(panels, window, title="", subtitle="", save_path=None, show=True):
+    """Gleitender Mittelwert monatlicher Kennzahlen über die Zeit, ein Teildiagramm pro Kennzahl.
+
+    `panels` ordnet jeder Überschrift eine Tabelle zu (Monate x Modelle, Werte pro
+    Monat); gezeichnet wird der Mittelwert über die letzten `window` Monate.
+    Für die Prognose-Steigung zeigt eine gestrichelte Linie den Idealwert 1.
+    """
+    fig, axes = plt.subplots(len(panels), 1, figsize=(11, 3.2 * len(panels)), sharex=True)
+    fig.patch.set_facecolor(SURFACE)
+
+    for ax, (panel_title, monthly) in zip(axes, panels.items()):
+        rolling = monthly.rolling(window).mean().dropna(how="all")
+        ax.set_facecolor(SURFACE)
+        for i, name in enumerate(rolling.columns):
+            ax.plot(rolling.index, rolling[name], color=SERIES_COLORS[i % len(SERIES_COLORS)], lw=1.6,
+                    label=name, zorder=3)
+        ax.axhline(0.0, color=AXIS, lw=1, zorder=1)
+        if "slope" in panel_title.lower():
+            ax.axhline(1.0, color=TEXT_MUTED, lw=1, ls="--", zorder=1)
+        ax.set_title(panel_title, loc="left", fontsize=10, color=TEXT_SECONDARY)
+        ax.grid(axis="y", color=GRID, lw=1)
+        ax.set_axisbelow(True)
+        for side in ["top", "right", "left"]:
+            ax.spines[side].set_visible(False)
+        ax.spines["bottom"].set_color(AXIS)
+        ax.tick_params(colors=TEXT_MUTED, labelsize=9, length=0, pad=6)
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper left", bbox_to_anchor=(0.072, 0.94), ncol=len(labels),
+               frameon=False, fontsize=9, labelcolor=TEXT_PRIMARY)
+    if title:
+        fig.text(0.08, 0.99, title, va="top", fontsize=13, fontweight="bold", color=TEXT_PRIMARY)
+    if subtitle:
+        fig.text(0.08, 0.962, subtitle, va="top", fontsize=10, color=TEXT_SECONDARY)
+
+    fig.subplots_adjust(left=0.08, right=0.97, top=0.88, bottom=0.05, hspace=0.35)
     if save_path:
         fig.savefig(save_path, dpi=150, facecolor=SURFACE)
     if show:

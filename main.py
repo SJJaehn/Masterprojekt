@@ -15,12 +15,15 @@ mit Machine-Learning-Modellen anstelle der linearen Regression:
        realisierten Renditen auf die Prognosen (Tabelle 3)
     5. Nach der Prognose sortierte Dezilportfolios (Tabelle 6)
     6. Handelsstrategie (Long Top 20 %) im Vergleich zu Equal Weight
+    7. Entwicklung über die Zeit (Abschnitt 3.6, Fig. 2): Prognose-Steigung,
+       H-L-Rendite und Überrendite der Strategie als gleitender Mittelwert,
+       mit Test auf einen Rückgang
 
 Jeder Schritt ist eine Funktion unten in dieser Datei; main() ganz unten ruft
 sie nacheinander auf. Die eigentliche Rechnung steht in:
     dataset.py     Schritt 1  (Daten laden, Stichprobe)
     models.py      Schritt 2  (Modelle, Fama-MacBeth-Schätzung)
-    evaluation.py  Schritte 3-6  (Regressionen, Tabellen, Strategie)
+    evaluation.py  Schritte 3-7  (Regressionen, Tabellen, Strategie, Zeitverlauf)
     report.py      Ausgabe von Tabellen und Grafik
 """
 
@@ -62,6 +65,9 @@ GRID_SEARCH = False          # True: Hyperparameter jeden Monat (bzw. in jedem F
 
 LONG_PCT = 0.20              # Kauf der besten 20 % der Aktien nach prognostizierter Rendite
 SHORT_PCT = 0.0              # Leerverkauf der schlechtesten x % der Aktien (0.0 = kein Shorting)
+
+ROLLING_MONTHS = 12          # Schritt 7: gleitender Mittelwert über so viele Monate (zusätzlich immer
+                             # 120 Monate wie in Lewellens Fig. 2)
 
 SAVE_RESULTS = True          # Ergebnisse (CSV-Dateien und Grafik) im Ordner output speichern
 SHOW_PLOT = True             # Grafik zusätzlich in einem Fenster anzeigen
@@ -316,12 +322,54 @@ def trading_strategy(preds, rf):
     return returns, perf
 
 
+def time_variation(preds, strategy):
+    """Schritt 7: Wie verändert sich die Prognosegüte über die Zeit? (Lewellen, Abschnitt 3.6 und Fig. 2)
+
+    Drei monatliche Reihen pro Modell:
+    - Prognose-Steigung: Steigung der Regression realisierte Rendite auf Prognose in diesem Monat
+      (ihr Mittelwert ist die Steigung aus Tabelle 3)
+    - H-L: Rendite High-Dezil minus Low-Dezil, gleichgewichtet (vgl. Tabelle 6)
+    - Überrendite der Strategie aus Schritt 6 gegenüber Equal Weight
+    Für jede Reihe wird getestet, ob sie in der zweiten Hälfte des Prognosezeitraums kleiner ist
+    und ob es einen linearen Trend gibt.
+    Rückgabe: (monatliche Reihen je Kennzahl, Tabelle der Trendtests).
+    """
+    report.print_section("7. Evolution through time (Lewellen Section 3.6 / Fig. 2)")
+    n_portfolios = 10
+    series = {
+        "Predictive slope": pd.DataFrame(
+            {name: evaluation.monthly_slopes(preds, name, TARGET_COL, DATE_COL) for name in MODELS_TO_RUN}),
+        "H-L return EW (%)": pd.DataFrame(
+            {name: evaluation.portfolio_returns(preds, name, TARGET_COL, DATE_COL, None, n_portfolios)[1]["H-L"]
+             for name in MODELS_TO_RUN}) * 100,
+        "Strategy minus Equal Weight (%)": strategy[MODELS_TO_RUN].sub(strategy["Equal Weight"], axis=0) * 100,
+    }
+
+    # Trennung in zwei gleich lange Hälften des Prognosezeitraums (Standard: 1974-1993 und 1994-2013)
+    dates = series["Predictive slope"].index
+    split_date = dates[len(dates) // 2]
+    trends = pd.concat({label: pd.DataFrame({name: evaluation.trend_test(monthly[name], split_date)
+                                             for name in monthly}).T
+                        for label, monthly in series.items()}, names=["series", "model"])
+    report.print_table(trends)
+    print(f"  1st half: {report.fmt_date(dates[0])} - {report.fmt_date(dates[len(dates) // 2 - 1])} | "
+          f"2nd half: {report.fmt_date(split_date)} - {report.fmt_date(dates[-1])}\n"
+          "  Difference: 2nd minus 1st half | Trend: change of the mean per 10 years | "
+          "t-stats with Newey-West SE\n"
+          "  A negative value with |t| > 2 indicates a significant decline.")
+    return series, trends
+
+
 def save_results(results):
-    """Speichert alle Tabellen als CSV-Dateien in OUTPUT_DIR (leere und fehlende Tabellen entfallen)."""
+    """Speichert alle Tabellen als CSV-Dateien in OUTPUT_DIR (leere und fehlende Tabellen entfallen).
+
+    Die Prognosen (eine Zeile pro Monat und Aktie) werden komprimiert gespeichert (.csv.gz).
+    """
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     for name, table in results.items():
         if table is not None and not table.empty:
-            table.to_csv(os.path.join(OUTPUT_DIR, f"{name}.csv"))
+            filename = f"{name}.csv.gz" if name == "predictions" else f"{name}.csv"
+            table.to_csv(os.path.join(OUTPUT_DIR, filename))
     print(f"\n  Results saved to '{OUTPUT_DIR}'")
 
 
@@ -343,6 +391,20 @@ def plot_strategy(returns, perf):
     )
 
 
+def plot_time_variation(series):
+    """Grafiken zu Schritt 7: gleitende Mittelwerte über ROLLING_MONTHS und über 120 Monate (wie Fig. 2)."""
+    for window in sorted({ROLLING_MONTHS, 120}):
+        report.plot_time_variation(
+            series, window,
+            title=f"Predictive ability through time ({window}-month rolling mean)",
+            subtitle=f"{'Fama-MacBeth' if ESTIMATION == 'fama_macbeth' else 'pooled'}, {window_label()} | "
+                     f"{f'top {UNIVERSE_SIZE} stocks' if UNIVERSE_SIZE else 'all stocks'} | "
+                     "dashed line: slope of 1 (unbiased forecast)",
+            save_path=os.path.join(OUTPUT_DIR, f"time_variation_{window}m.png") if SAVE_RESULTS else None,
+            show=SHOW_PLOT,
+        )
+
+
 def main():
     check_settings()
     df, feature_cols, rf = load_sample()                       # Schritt 1
@@ -351,6 +413,7 @@ def main():
     table3, metrics, correlations = evaluate_forecasts(preds)  # Schritt 4
     portfolios = portfolio_sorts(preds)                        # Schritt 5
     strategy, perf = trading_strategy(preds, rf)               # Schritt 6
+    series, trends = time_variation(preds, strategy)           # Schritt 7
 
     if SAVE_RESULTS:
         save_results({
@@ -365,8 +428,11 @@ def main():
             "sorted_portfolios": pd.concat(portfolios, names=["model", "portfolio"]),
             "strategy_returns": strategy,
             "performance": perf,
+            "time_variation_monthly": pd.concat(series, axis=1),
+            "time_variation_trends": trends,
         })
     plot_strategy(strategy, perf)
+    plot_time_variation(series)
 
 
 if __name__ == "__main__":

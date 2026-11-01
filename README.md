@@ -30,8 +30,9 @@ Finance-Hintergrund geschrieben; Programmierkenntnisse sind nicht nötig.
 - [Schritt 4: Wie gut sind die Prognosen? (Tabelle 3)](#schritt-4-wie-gut-sind-die-prognosen-tabelle-3)
 - [Schritt 5: Dezilportfolios (Tabelle 6)](#schritt-5-dezilportfolios-tabelle-6)
 - [Schritt 6: Handelsstrategie](#schritt-6-handelsstrategie)
+- [Schritt 7: Entwicklung über die Zeit (Fig. 2)](#schritt-7-entwicklung-über-die-zeit-fig-2)
 - [Ergebnisse](#ergebnisse)
-- [Unterschiede zum Paper](#unterschiede-zum-paper)
+- [Abgleich mit dem Paper](#abgleich-mit-dem-paper)
 - [Einstellungen ändern](#einstellungen-ändern)
 - [Glossar](#glossar)
 
@@ -47,9 +48,11 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Das Skript lädt die vorbereiteten Daten aus `data/`, rechnet alle sechs
+Das Skript lädt die vorbereiteten Daten aus `data/`, rechnet alle sieben
 Schritte nacheinander und schreibt die Tabellen in die Konsole. Ergebnisse
-(CSV-Dateien und eine Grafik) landen im Ordner `output/`. Ein kompletter Lauf
+(CSV-Dateien und Grafiken) landen im Ordner `output/`. Die Ergebnisse des
+Standardlaufs liegen dort bereits im Repository – man muss das Skript also
+nicht laufen lassen, um sie anzusehen. Ein kompletter Lauf
 mit allen vier Modellen dauert auf einem Rechner mit 4 Kernen etwa
 7 Minuten; der Random Forest braucht davon am längsten. Mit Grid Search
 entsprechend ein Vielfaches.
@@ -62,11 +65,12 @@ Modelle kürzen.
 
 | Datei | Inhalt |
 | --- | --- |
-| `main.py` | **Hier anfangen.** Alle Einstellungen oben, darunter die sechs Schritte als Funktionen, ganz unten `main()`, die sie nacheinander aufruft. |
+| `main.py` | **Hier anfangen.** Alle Einstellungen oben, darunter die sieben Schritte als Funktionen, ganz unten `main()`, die sie nacheinander aufruft. |
 | `dataset.py` | Schritt 1: Daten laden, Charakteristika, Stichprobe |
 | `models.py` | Schritt 2: die vier Modelle und die Fama-MacBeth-Schätzung |
-| `evaluation.py` | Schritte 3–6: Regressionen, Tabellen 2/3/6, Handelsstrategie, Kennzahlen |
+| `evaluation.py` | Schritte 3–7: Regressionen, Tabellen 2/3/6, Handelsstrategie, Kennzahlen, Zeitverlauf |
 | `report.py` | Ausgabe: Tabellen formatieren, Grafik zeichnen (keine Rechnung) |
+| `output/` | Ergebnisse des Standardlaufs: alle Tabellen als CSV und die Grafiken |
 | `data/jkp_top1000_25y_5y_rank.csv.gz` | Vorbereitete Daten (aus den 6-GB-Rohdaten des Tutors erzeugt) |
 | `Thema 3 - Stock Return Prediction/` | MATLAB-Skripte des Tutors, an denen sich die Datenaufbereitung orientiert |
 | `ssrn-2511246.pdf` | Das Paper |
@@ -82,6 +86,7 @@ def main():
     table3, metrics, correlations = evaluate_forecasts(preds)  # Schritt 4
     portfolios = portfolio_sorts(preds)                        # Schritt 5
     strategy, perf = trading_strategy(preds, rf)               # Schritt 6
+    series, trends = time_variation(preds, strategy)           # Schritt 7
 ```
 
 > **Lesehilfe Python.** `df` ist eine Tabelle (wie ein Excel-Blatt), `df["me"]`
@@ -651,6 +656,78 @@ sortiert wird, kann der Umschlag hoch sein.
 
 ---
 
+## Schritt 7: Entwicklung über die Zeit (Fig. 2)
+
+**Code:** `time_variation()` und `plot_time_variation()` in `main.py`,
+`monthly_slopes()`, `portfolio_returns()` und `trend_test()` in `evaluation.py`
+
+Die Tabellen 3 und 6 zeigen Durchschnitte über 40 Jahre. Sie sagen nicht, ob
+die Prognosen **immer** gleich gut waren oder ob ihre Güte mit der Zeit
+**nachlässt**. Lewellen untersucht das in Abschnitt 3.6 und Fig. 2. Die Frage
+ist wichtig: Werden Anomalien bekannt und gehandelt, könnten sie
+verschwinden (McLean & Pontiff, 2016).
+
+### Drei Kennzahlen pro Monat
+
+```python
+series = {
+    "Predictive slope": pd.DataFrame(
+        {name: evaluation.monthly_slopes(preds, name, TARGET_COL, DATE_COL) for name in MODELS_TO_RUN}),
+    "H-L return EW (%)": pd.DataFrame(
+        {name: evaluation.portfolio_returns(preds, name, TARGET_COL, DATE_COL, None, n_portfolios)[1]["H-L"]
+         for name in MODELS_TO_RUN}) * 100,
+    "Strategy minus Equal Weight (%)": strategy[MODELS_TO_RUN].sub(strategy["Equal Weight"], axis=0) * 100,
+}
+```
+
+| Kennzahl | Was sie misst | Mittelwert über alle Monate = |
+| --- | --- | --- |
+| **Prognose-Steigung** | Steigung der Querschnittsregression realisierte Rendite auf Prognose, **in diesem einen Monat** | Steigung aus Tabelle 3 |
+| **H−L-Rendite** | Rendite Dezil 10 minus Dezil 1 in diesem Monat (gleichgewichtet) | H−L aus Tabelle 6 |
+| **Überrendite der Strategie** | Rendite der Long-Top-20 %-Strategie minus Equal Weight in diesem Monat | Differenz aus Schritt 6 |
+
+Die ersten beiden sind genau Lewellens zwei Panels in Fig. 2; die dritte
+zeigt dasselbe aus Sicht unserer Handelsstrategie.
+
+### Gleitender Mittelwert
+
+Einzelne Monatswerte sind sehr verrauscht (eine Steigung kann in einem Monat
++8 und im nächsten −6 sein). Deshalb zeigen die Grafiken den **gleitenden
+Mittelwert**: Jeder Punkt ist der Durchschnitt der letzten *n* Monate.
+
+```python
+rolling = monthly.rolling(window).mean()
+```
+
+Es gibt zwei Grafiken:
+
+- `output/time_variation_12m.png` – **12 Monate**: zeigt einzelne Jahre und
+  Krisen deutlich, schwankt aber stark (Einstellung `ROLLING_MONTHS`).
+- `output/time_variation_120m.png` – **120 Monate**, wie Lewellens Fig. 2:
+  zeigt den langfristigen Verlauf. Der erste Punkt liegt Ende 1983, weil
+  dafür 10 Jahre Prognosen nötig sind.
+
+### Test auf einen Rückgang
+
+Die Grafik zeigt einen Eindruck, ein Test macht daraus eine Aussage.
+`trend_test()` prüft jede Monatsreihe auf zwei Arten:
+
+```python
+halves = sm.OLS(y.to_numpy(), sm.add_constant(second_half)).fit(**hac)
+trend = sm.OLS(y.to_numpy(), sm.add_constant(np.asarray(decades))).fit(**hac)
+```
+
+1. **Hälftenvergleich**: Regression der Monatswerte auf eine Dummy-Variable,
+   die in der zweiten Hälfte (1994–2013) 1 ist. Der Koeffizient ist genau die
+   Differenz der Mittelwerte "zweite minus erste Hälfte".
+2. **Linearer Trend**: Regression auf die Zeit, gemessen in Jahrzehnten. Der
+   Koeffizient ist die durchschnittliche Veränderung pro 10 Jahre.
+
+Beide mit Newey-West-Standardfehlern (4 Lags), wie überall im Paper.
+**Ein negativer Wert mit |t| > 2 spricht für einen signifikanten Rückgang.**
+
+---
+
 ## Ergebnisse
 
 Ein Lauf mit den Standardeinstellungen (Modell 3, 500 größte Aktien,
@@ -701,13 +778,77 @@ Beobachtungen, die sich direkt aus den Zahlen ablesen lassen:
 - Die OLS-Steigung von 0,42 liegt am unteren Rand von Lewellens Werten für
   große Aktien (0,44–0,72, Tabelle 3, Panel C).
 
+**Wertentwicklung der Strategie** (`output/performance.png`)
+
+![Wertentwicklung der Strategien](output/performance.png)
+
+**Schritt 7 – Entwicklung über die Zeit**
+
+| Reihe | Modell | Mittel 1974–93 | Mittel 1994–2013 | Differenz (t) | Trend pro 10 J. (t) |
+| --- | --- | --- | --- | --- | --- |
+| Prognose-Steigung | OLS | 0,53 | 0,31 | −0,21 (−0,57) | −0,23 (−1,48) |
+| | Decision Tree | 0,48 | 0,15 | −0,33 (−0,92) | −0,28 (−2,18) |
+| | Random Forest | 1,14 | 0,04 | −1,09 (−1,12) | −0,86 (−2,33) |
+| | XGBoost | 0,55 | 0,19 | −0,36 (−1,27) | −0,26 (−2,44) |
+| H−L-Rendite EW (%) | OLS | 1,02 | 0,40 | −0,61 (−1,12) | −0,46 (−2,09) |
+| | Decision Tree | 0,65 | 0,14 | −0,50 (−0,96) | −0,36 (−1,95) |
+| | Random Forest | 0,80 | −0,06 | −0,86 (−1,45) | −0,54 (−2,57) |
+| | XGBoost | 0,95 | 0,21 | −0,74 (−1,46) | −0,45 (−2,37) |
+| Strategie − Equal Weight (%) | OLS | 0,30 | 0,19 | −0,11 (−0,43) | −0,12 (−1,30) |
+| | Decision Tree | 0,23 | 0,10 | −0,13 (−0,50) | −0,11 (−1,37) |
+| | Random Forest | 0,23 | −0,06 | −0,29 (−0,97) | −0,20 (−2,22) |
+| | XGBoost | 0,33 | 0,10 | −0,23 (−0,88) | −0,16 (−1,95) |
+
+![Gleitender 10-Jahres-Mittelwert wie Lewellens Fig. 2](output/time_variation_120m.png)
+
+![Gleitender 12-Monats-Mittelwert](output/time_variation_12m.png)
+
+Was die Zahlen zeigen:
+
+- **Alle Vorzeichen sind negativ:** Bei allen vier Modellen und allen drei
+  Kennzahlen ist die Prognosegüte 1994–2013 kleiner als 1974–1993.
+- **Der lineare Trend ist für die Bäume meist signifikant** (6 von 9
+  t-Werten unter −2), für OLS nur bei der H−L-Rendite (t = −2,09). Der Hälftenvergleich
+  allein ist nirgends signifikant – die Monatswerte schwanken dafür zu stark.
+- **Der Rückgang ist kein gleichmäßiger Abwärtstrend.** In der
+  10-Jahres-Grafik sind die Kennzahlen bis etwa 2008 recht stabil (mit
+  einem Tief Mitte der 1990er und einem Hoch um 2000) und brechen dann ein.
+  In den letzten 10 Jahren (2004–2013) liegt die mittlere Steigung bei
+  −0,05 (OLS) bis −1,13 (Random Forest), die H−L-Rendite bei +0,07 % (OLS)
+  bis −0,51 % (XGBoost) pro Monat.
+- Das deckt sich mit Lewellen (Abschnitt 3.6): stabile Prognosekraft bis
+  2008, dann ein Einbruch, besonders bei großen Aktien (dort mittlere
+  Steigung −0,37 in den letzten 10 Jahren). Er nennt als einen Grund die
+  sehr schlechte Momentum-Rendite 2009 und hält offen, ob der Rückgang
+  dauerhaft ist.
+- Die **Bäume trifft der Einbruch stärker als OLS**. In der
+  12-Monats-Grafik fallen um 2001 und 2009 die starken Ausschläge auf.
+  Beim Random Forest ist die Steigung besonders extrem, weil seine Prognosen
+  kaum streuen (siehe oben): Kleine Prognoseunterschiede ergeben in der
+  Regression große Steigungen in beide Richtungen.
+
 Mögliche Ansatzpunkte für die Arbeit: Grid Search (`GRID_SEARCH = True`), die
 gepoolte Schätzung (`ESTIMATION = "pooled"`), die mehr Daten pro Baum hat,
 sowie Modell 1 und 2 im Vergleich.
 
 ---
 
-## Unterschiede zum Paper
+## Abgleich mit dem Paper
+
+**Wie im Paper umgesetzt:**
+
+| Paper | Hier | Code |
+| --- | --- | --- |
+| Monatliche Querschnittsregressionen der Renditen auf die Kennzahlen des Vormonats (Fama-MacBeth) | gleich | `evaluation.fama_macbeth` |
+| Prognose = Kennzahlen zu Monatsbeginn × Mittel der Achsenabschnitte und Steigungen der **vorherigen 120 Monate** | gleich; für die Bäume: Mittel der Prognosen der 120 vorherigen Monatsmodelle (für OLS rechnerisch identisch, siehe 2b) | `models.average_of_monthly_models` |
+| Erste Regressionen 1964, erste Prognose 1974 | gleich (Daten ab Januar 1964, erster Prognosemonat Januar 1974 mit vollen 120 Monaten Historie) | `TEST_START` |
+| Alternative: kumulierter Mittelwert seit 1964 | `WINDOW_TYPE = "expanding"` | |
+| Tabelle 2: mittlere Steigungen, t-Statistik mit Newey-West (4 Lags) | gleich | `paper_regressions` |
+| Tabelle 3: Verteilung der Prognosen (Avg, Std, p10, p90 im Querschnitt, über die Monate gemittelt) und Out-of-Sample-FM-Regression der Renditen auf die Prognose (Slope, S.E., t, R²) | gleich | `evaluation.forecast_evaluation` |
+| Tabelle 6: Dezile nach Prognose, gleich- und wertgewichtet (Marktwert zu Monatsbeginn), Pred/Avg/Std/Sharpe/t, H−L | gleich | `evaluation.sorted_portfolios` |
+| Fig. 2: Prognose-Steigung und H−L-Rendite als gleitender 10-Jahres-Mittelwert | gleich, zusätzlich 12 Monate und ein Trendtest | Schritt 7 |
+
+**Bewusste Abweichungen** (Vorgaben der Aufgabe bzw. der Daten):
 
 | | Lewellen (2015) | Hier |
 | --- | --- | --- |
@@ -718,7 +859,6 @@ sowie Modell 1 und 2 im Vergleich.
 | Rendite | Rendite | Überrendite über den risikofreien Zins (verschiebt nur das Niveau, nicht die Querschnittsunterschiede) |
 | Modell 3 | 15 Variablen | 14 Variablen (eine Emissionsvariable statt zwei) |
 | Zeitraum | Schätzung ab 1964, Prognosen 1974–2013 | gleich (einstellbar bis 2024) |
-| Standardfehler | Newey-West, 4 Lags | gleich |
 
 ---
 
@@ -737,6 +877,7 @@ Alle wichtigen Einstellungen stehen oben in `main.py`:
 | `MODELS_TO_RUN` | alle vier | Liste der Modelle |
 | `GRID_SEARCH` | `False` | Hyperparameter monatlich wählen (2f) |
 | `LONG_PCT`, `SHORT_PCT` | `0.20`, `0.0` | Strategie aus Schritt 6 |
+| `ROLLING_MONTHS` | `12` | gleitender Mittelwert in Schritt 7 (die 120-Monats-Grafik entsteht immer) |
 | `USE_DUMMY_DATA` | `False` | Zufallsdaten zum Testen |
 
 Die Hyperparameter der Modelle stehen in `estimate()` in `main.py`.
@@ -745,7 +886,7 @@ Die Hyperparameter der Modelle stehen in `estimate()` in `main.py`.
 
 | Datei | Inhalt |
 | --- | --- |
-| `predictions.csv` | alle Prognosen: eine Zeile pro Monat und Aktie |
+| `predictions.csv.gz` | alle Prognosen: eine Zeile pro Monat und Aktie (komprimiert; Excel öffnet sie nach dem Entpacken) |
 | `fama_macbeth_regressions.csv` | Tabelle 2 |
 | `fama_macbeth_monthly_coefficients.csv` | die monatlichen Regressionskoeffizienten |
 | `forecast_evaluation.csv` | Tabelle 3 |
@@ -753,6 +894,9 @@ Die Hyperparameter der Modelle stehen in `estimate()` in `main.py`.
 | `sorted_portfolios.csv` | Tabelle 6 |
 | `feature_importance.csv` | Feature Importances der Bäume |
 | `strategy_returns.csv`, `performance.csv`, `performance.png` | Handelsstrategie |
+| `time_variation_monthly.csv` | Schritt 7: die drei Kennzahlen pro Monat und Modell |
+| `time_variation_trends.csv` | Schritt 7: Hälftenvergleich und Trendtest |
+| `time_variation_12m.png`, `time_variation_120m.png` | Schritt 7: gleitende Mittelwerte |
 
 ---
 
@@ -775,4 +919,5 @@ Die Hyperparameter der Modelle stehen in `estimate()` in `main.py`.
 
 - Lewellen, J. (2015): The Cross-Section of Expected Stock Returns. *Critical Finance Review* 4, 1–44.
 - Gu, S., Kelly, B., Xiu, D. (2020): Empirical Asset Pricing via Machine Learning. *Review of Financial Studies* 33, 2223–2273.
+- McLean, R. D., Pontiff, J. (2016): Does Academic Research Destroy Stock Return Predictability? *Journal of Finance* 71, 5–32.
 - Jensen, T. I., Kelly, B., Pedersen, L. H. (2023): Is There a Replication Crisis in Finance? *Journal of Finance* 78, 2465–2518.
