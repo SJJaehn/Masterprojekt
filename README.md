@@ -827,6 +827,59 @@ Was die Zahlen zeigen:
   kaum streuen (siehe oben): Kleine Prognoseunterschiede ergeben in der
   Regression große Steigungen in beide Richtungen.
 
+### Erweiterung: Prognosen bis 2024
+
+Das Paper endet 2013. Um zu prüfen, ob die Strategien **nach** dem Paper noch
+funktionieren, haben wir denselben Lauf mit Prognosen bis November 2024
+wiederholt (`TEST_END = None`). Alles andere ist unverändert; die Prognosen
+für 1974–2013 sind identisch mit dem Hauptlauf. Alle Tabellen und Grafiken
+dieses Laufs liegen in **`output/test_until_2024/`**.
+
+Die entscheidende Frage ist der Zeitraum **2014–2024 (131 Monate)**, den
+das Paper nicht kennt. Mittelwerte pro Monat mit Newey-West-t-Statistik:
+
+| Modell | Prognose-Steigung (t) | H−L-Rendite EW in % (t) | Strategie − Equal Weight in % (t) |
+| --- | --- | --- | --- |
+| OLS | 0,24 (0,41) | −0,04 (−0,07) | 0,02 (0,08) |
+| Decision Tree | 0,13 (0,36) | 0,10 (0,25) | 0,00 (0,02) |
+| Random Forest | 0,16 (0,12) | −0,16 (−0,29) | −0,03 (−0,13) |
+| XGBoost | −0,02 (−0,04) | −0,10 (−0,21) | −0,01 (−0,03) |
+
+Zum Vergleich 1974–2013: H−L-Rendite 0,37–0,71 %, Strategie − Equal Weight
+0,08–0,24 % pro Monat.
+
+Handelsstrategie Long Top 20 %, nur 2014–2024:
+
+| Strategie | Rendite p. a. | Volatilität p. a. | Sharpe Ratio | Max Drawdown |
+| --- | --- | --- | --- | --- |
+| OLS | 9,76 % | 16,66 % | 0,64 | −37,33 % |
+| Decision Tree | 9,58 % | 16,54 % | 0,64 | −30,25 % |
+| Random Forest | 9,06 % | 17,24 % | 0,59 | −36,75 % |
+| XGBoost | 9,29 % | 17,49 % | 0,60 | −36,18 % |
+| Equal Weight | 9,66 % | 15,85 % | 0,66 | −24,58 % |
+
+![Gleitender 10-Jahres-Mittelwert bis 2024](output/test_until_2024/time_variation_120m.png)
+
+Was die Zahlen zeigen:
+
+- **2014–2024 ist bei keinem Modell ein Vorteil gegenüber Equal Weight
+  erkennbar.** Alle Mittelwerte liegen nahe null, alle t-Statistiken
+  zwischen −0,3 und +0,4. Equal Weight hat die höchste Sharpe Ratio und den
+  kleinsten Drawdown.
+- Der Einbruch von 2008/09 hat sich also **nicht erholt**: Die gleitenden
+  10-Jahres-Mittelwerte bleiben bis 2024 um null (kurz positiv um 2020/21).
+- Über den ganzen Zeitraum 1974–2024 ist der Rückgang deutlicher als bis
+  2013: Der Trend der H−L-Rendite ist für alle vier Modelle negativ mit
+  t zwischen −1,97 und −2,71 (`output/test_until_2024/time_variation_trends.csv`).
+
+Einordnung: Gemessen wird die Überrendite gegenüber dem gleichgewichteten
+Portfolio der 500 größten Aktien, kein risikoadjustiertes Alpha (z. B.
+gegenüber den Fama-French-Faktoren). Die Aussage lautet daher genau: *Mit
+diesem Verfahren und diesen 14 Kennzahlen lässt sich unter den 500 größten
+US-Aktien seit 2009 keine Überrendite gegenüber Equal Weight erzielen.*
+Ein Ergebnis nahe null mit kleinen t-Statistiken heißt auch: Ein kleiner
+Vorteil lässt sich mit 11 Jahren Daten weder nachweisen noch ausschließen.
+
 Mögliche Ansatzpunkte für die Arbeit: Grid Search (`GRID_SEARCH = True`), die
 gepoolte Schätzung (`ESTIMATION = "pooled"`), die mehr Daten pro Baum hat,
 sowie Modell 1 und 2 im Vergleich.
@@ -897,6 +950,7 @@ Die Hyperparameter der Modelle stehen in `estimate()` in `main.py`.
 | `time_variation_monthly.csv` | Schritt 7: die drei Kennzahlen pro Monat und Modell |
 | `time_variation_trends.csv` | Schritt 7: Hälftenvergleich und Trendtest |
 | `time_variation_12m.png`, `time_variation_120m.png` | Schritt 7: gleitende Mittelwerte |
+| `test_until_2024/` | dieselben Dateien für den Lauf mit Prognosen bis 2024 |
 
 ---
 
