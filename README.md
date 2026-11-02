@@ -646,8 +646,10 @@ Portfolios** sortiert (Dezil 1 = niedrigste Prognose, Dezil 10 = höchste):
 
 ```python
 df["portfolio"] = df.groupby(DATE)[model].transform(
-    lambda s: pd.qcut(s.rank(method="first"), n_groups, labels=False) + 1)
+    lambda s: pd.qcut((sign * s).rank(method="first"), n_groups, labels=False) + 1)
 ```
+
+(`sign` ist 1 für die Prognosen und −1 für die Disagreement, siehe Schritt 8.)
 
 Für jedes Portfolio wird die Rendite im Folgemonat berechnet –
 **gleichgewichtet (EW)** und **wertgewichtet (VW)** nach Marktkapitalisierung –
