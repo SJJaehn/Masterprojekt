@@ -30,7 +30,7 @@ Finance-Hintergrund geschrieben; Programmierkenntnisse sind nicht nötig.
 - [Schritt 3: Fama-MacBeth-Regressionen (Tabelle 2)](#schritt-3-fama-macbeth-regressionen-tabelle-2)
 - [Schritt 4: Wie gut sind die Prognosen? (Tabelle 3)](#schritt-4-wie-gut-sind-die-prognosen-tabelle-3)
 - [Schritt 5: Dezilportfolios (Tabelle 6)](#schritt-5-dezilportfolios-tabelle-6)
-- [Schritt 6: Handelsstrategie](#schritt-6-handelsstrategie)
+- [Schritt 6: Handelsstrategien](#schritt-6-handelsstrategien)
 - [Schritt 7: Entwicklung über die Zeit (Fig. 2)](#schritt-7-entwicklung-über-die-zeit-fig-2)
 - [Schritt 8: Machine Forecast Disagreement](#schritt-8-machine-forecast-disagreement)
 - [Ergebnisse](#ergebnisse)
@@ -670,26 +670,58 @@ oder unterschätzen (vgl. die Steigung aus Schritt 4).
 
 ---
 
-## Schritt 6: Handelsstrategie
+## Schritt 6: Handelsstrategien
 
-**Code:** Abschnitt 6 in `main.py`, `strategy_returns()` und
+**Code:** Abschnitt 6 in `main.py`, `strategy_returns()`, `backtest()` und
 `performance_metrics()` in `util.py`
 
-Zum Schluss eine einfache, umsetzbare Strategie: **Jeden Monat die 20 % der
-Aktien mit der höchsten Prognose gleichgewichtet kaufen** (`LONG_PCT = 0.20`).
-Benchmark ist das
-gleichgewichtete Portfolio aller 500 Aktien ("Equal Weight").
+Zum Schluss drei einfache Strategien, jeden Monat neu zusammengestellt und
+gleichgewichtet. Benchmark ist das gleichgewichtete Portfolio aller 500 Aktien
+("Equal Weight").
+
+| Strategie | Was passiert | Einstellung |
+| --- | --- | --- |
+| **Long** | die 10 % Aktien mit der höchsten Prognose kaufen | `LONG_PCT = 0.10` |
+| **Short** | die 10 % Aktien mit der niedrigsten Prognose leerverkaufen | `SHORT_PCT = 0.10` |
+| **Long-Short** | beides zugleich; der Erlös aus dem Leerverkauf bezahlt den Kauf (selbstfinanzierend) | beide |
+
+Alle drei rechnet eine Funktion, die einen Long- und einen Short-Anteil
+bekommt:
 
 ```python
 for date, g in preds.groupby(DATE):
-    # realisierte Renditen, sortiert von der höchsten zur niedrigsten Prognose
-    realised = g.sort_values(model, ascending=False, kind="stable")[RET]
-    n_long = max(1, int(round(len(realised) * long_pct)))  # mindestens 1 Aktie
-    returns[date] = realised.iloc[:n_long].mean()
+    # realisierte Renditen, sortiert von der besten zur schlechtesten Aktie nach `model`
+    realised = g.sort_values(model, ascending=not high_is_good, kind="stable")[RET]
+    ret = 0.0
+    if long_pct > 0:
+        n_long = max(1, int(round(len(realised) * long_pct)))  # mindestens 1 Aktie
+        ret += realised.iloc[:n_long].mean()
+    if short_pct > 0:
+        n_short = max(1, int(round(len(realised) * short_pct)))
+        ret -= realised.iloc[-n_short:].mean()
+    returns[date] = ret
 ```
 
-Für jeden Monat: Aktien nach Prognose sortieren, die ersten 20 % (`iloc[:n_long]`)
-nehmen, deren durchschnittliche realisierte Rendite ist die Portfoliorendite.
+Für jeden Monat: Aktien nach Prognose sortieren; die ersten 10 %
+(`iloc[:n_long]`) werden gekauft, die letzten 10 % (`iloc[-n_short:]`)
+leerverkauft. Die Rendite eines Leerverkaufs ist minus die Rendite der Aktie.
+In `main.py` legt ein Dictionary die drei Strategien fest:
+
+```python
+STRATEGIES = {"Long": (LONG_PCT, 0.0), "Short": (0.0, SHORT_PCT), "Long-Short": (LONG_PCT, SHORT_PCT)}
+strategy = util.backtest(preds, MODELS_TO_RUN, STRATEGIES)  # Spalten: (Strategie, Modell) plus Equal Weight
+```
+
+Zum Lesen der Ergebnisse:
+
+- **Long** vergleicht man direkt mit Equal Weight.
+- **Short** allein verliert fast immer Geld, weil Aktien im Schnitt steigen.
+  Entscheidend ist, ob die leerverkauften Aktien **schlechter als der Markt**
+  waren. Das zeigt die Kennzahl "Equal Weight minus leerverkaufte Aktien" in
+  Schritt 7.
+- **Long-Short** mit 10 % / 10 % ist gleichgewichtet genau das H−L-Portfolio
+  aus Tabelle 6 (High-Dezil minus Low-Dezil); nur bei exakt gleichen
+  Prognosen können einzelne Aktien anders zugeordnet werden.
 
 Daraus die Kennzahlen:
 
@@ -709,12 +741,15 @@ wealth = (1 + returns).cumprod()
 | Sharpe Ratio | mittlere Überrendite / Standardabweichung × √12 (die JKP-Renditen sind bereits Überrenditen über den risikofreien Zins) |
 | Max Drawdown | größter prozentualer Verlust vom bisherigen Höchststand |
 
-Die Grafik `output/single/predicted_return/performance.png` zeigt die Wertentwicklung von 1 investierten
-Dollar je Modell gegen Equal Weight (logarithmische Skala: gleiche prozentuale
-Rendite ergibt gleiche Steigung).
+Die Grafiken `performance_long.png`, `performance_short.png` und
+`performance_long-short.png` in `output/single/predicted_return/` zeigen die
+Wertentwicklung von 1 investierten Dollar je Modell gegen Equal Weight
+(logarithmische Skala: gleiche prozentuale Rendite ergibt gleiche Steigung).
+Für Long-Short ist das eine Näherung: Man stellt sich vor, das Kapital liegt
+als Sicherheit und erhält zusätzlich die Long-Short-Rendite.
 
-Hinweis: Transaktionskosten sind nicht berücksichtigt; da jeden Monat neu
-sortiert wird, kann der Umschlag hoch sein.
+Hinweis: Transaktionskosten und Leihgebühren für Leerverkäufe sind nicht
+berücksichtigt; da jeden Monat neu sortiert wird, kann der Umschlag hoch sein.
 
 ---
 
@@ -728,7 +763,7 @@ die Prognosen **immer** gleich gut waren oder ob ihre Güte mit der Zeit
 ist wichtig: Werden Anomalien bekannt und gehandelt, könnten sie
 verschwinden (McLean & Pontiff, 2016).
 
-### Drei Kennzahlen pro Monat
+### Vier Kennzahlen pro Monat
 
 ```python
 series = {
@@ -736,7 +771,8 @@ series = {
         {name: util.fama_macbeth(preds, RET, [name])[1][name] for name in MODELS_TO_RUN}),
     "H-L return EW (%)": pd.DataFrame(
         {name: util.portfolio_returns(preds, name)[1]["H-L"] for name in MODELS_TO_RUN}) * 100,
-    "Strategy minus Equal Weight (%)": strategy[MODELS_TO_RUN].sub(strategy["Equal Weight"], axis=0) * 100,
+    "Long minus Equal Weight (%)": strategy["Long"].sub(equal_weight, axis=0) * 100,
+    "Equal Weight minus shorted stocks (%)": strategy["Short"].add(equal_weight, axis=0) * 100,
 }
 ```
 
@@ -744,10 +780,13 @@ series = {
 | --- | --- | --- |
 | **Prognose-Steigung** | Steigung der Querschnittsregression realisierte Rendite auf Prognose, **in diesem einen Monat** | Steigung aus Tabelle 3 |
 | **H−L-Rendite** | Rendite Dezil 10 minus Dezil 1 in diesem Monat (gleichgewichtet) | H−L aus Tabelle 6 |
-| **Überrendite der Strategie** | Rendite der Long-Top-20 %-Strategie minus Equal Weight in diesem Monat | Differenz aus Schritt 6 |
+| **Long-Seite** | Rendite der gekauften 10 % minus Equal Weight | wie viel besser die Long-Strategie war |
+| **Short-Seite** | Equal Weight minus Rendite der leerverkauften 10 % | wie viel schlechter die leerverkauften Aktien waren |
 
-Die ersten beiden sind genau Lewellens zwei Panels in Fig. 2; die dritte
-zeigt dasselbe aus Sicht unserer Handelsstrategie.
+Die ersten beiden sind genau Lewellens zwei Panels in Fig. 2. Die letzten
+beiden teilen die H−L-Rendite in ihre zwei Hälften: Long-Seite + Short-Seite
+≈ H−L. So sieht man, ob der Gewinn eher aus guten Käufen oder aus guten
+Leerverkäufen kommt.
 
 ### Gleitender Mittelwert
 
@@ -836,6 +875,16 @@ gleich zu lesen sind, wird hier umgekehrt sortiert:
 
 In beiden Ordnern heißt also: **positives H−L = das Signal funktioniert.**
 
+**Warum die Short-Seite hier besonders wichtig ist.** Laut Paper sitzt der
+Effekt vor allem bei den Aktien mit **hoher** Disagreement: Sie sind
+überbewertet, weil Pessimisten sie wegen teurer Leerverkäufe nicht verkaufen
+können (Miller, 1977). Die Aktien mit geringer Disagreement haben dagegen
+wertgewichtet kaum Alpha. Deshalb wird die Strategie in drei Teilen
+ausgewertet – Long (geringste MFD), Short (höchste MFD) und beides – und im
+Zeitverlauf die Short-Seite als "Equal Weight minus leerverkaufte Aktien":
+Ist sie positiv, haben die Aktien mit der höchsten Disagreement schlechter
+abgeschnitten als der Markt.
+
 ```python
 mfd_portfolios = util.sorted_portfolios(preds, "MFD", high_is_good=False, value_label="MFD (%)")
 ```
@@ -848,8 +897,8 @@ zeigt statt der mittleren Prognose die mittlere Disagreement (`MFD (%)`).
 | Verteilung | Avg, Std, p10, p90 der Prognosen | Mittel, p10, Median, p90 der MFD |
 | Fama-MacBeth-Regression | Renditen auf Prognose (Steigung ideal 1) | Renditen auf MFD, allein und zusammen mit der Prognose (Paper: Steigung negativ) |
 | Dezilportfolios | nach Prognose | nach MFD (High = geringste MFD) |
-| Strategie | Long die 20 % mit der höchsten Prognose | Long die 20 % mit der geringsten MFD |
-| Zeitverlauf | Steigung, H−L, Strategie − Equal Weight | H−L, Strategie − Equal Weight |
+| Strategien | Long die 10 % mit der höchsten, Short die 10 % mit der niedrigsten Prognose, beides | Long die 10 % mit der **geringsten**, Short die 10 % mit der **höchsten** MFD, beides |
+| Zeitverlauf | Steigung, H−L, Long-Seite, Short-Seite | H−L, Long-Seite, Short-Seite |
 
 Unterschiede zum Paper: 14 statt 153 Kennzahlen, ein Baum statt ein Random
 Forest pro Investor, die 500 größten statt aller Aktien über 5 $. Das Paper
@@ -1126,7 +1175,7 @@ Alle wichtigen Einstellungen stehen oben in `main.py`:
 | `REFIT_EVERY` | `12` | nur `"stacked"`: alle wie viele Monate neu trainiert wird |
 | `TEST_START`, `TEST_END` | 1974–2013 | Prognosezeitraum (`TEST_END = None`: bis 2024) |
 | `MODELS_TO_RUN` | alle fünf | Liste der Modelle; ohne `"Investors"` entfällt Schritt 8 |
-| `LONG_PCT` | `0.20` | Strategie aus Schritt 6 |
+| `LONG_PCT`, `SHORT_PCT` | `0.10`, `0.10` | Anteil der gekauften bzw. leerverkauften Aktien in Schritt 6 und 8 |
 | `ROLLING_MONTHS` | `12` | gleitender Mittelwert in Schritt 7 (die 120-Monats-Grafik entsteht immer) |
 
 Die Hyperparameter der Modelle stehen in `MODELS` in `models.py`. Die
@@ -1156,7 +1205,8 @@ output/
 | `prediction_metrics.csv`, `forecast_correlations.csv` | weitere Kennzahlen |
 | `sorted_portfolios.csv` | Tabelle 6 |
 | `feature_importance.csv` | Feature Importances der Bäume |
-| `strategy_returns.csv`, `performance.csv`, `performance.png` | Handelsstrategie (Schritt 6) |
+| `strategy_returns.csv`, `performance.csv` | Long, Short und Long-Short je Modell plus Equal Weight (Schritt 6) |
+| `performance_long.png`, `performance_short.png`, `performance_long-short.png` | Wertentwicklung je Strategie |
 | `time_variation_monthly.csv`, `time_variation_trends.csv` | Schritt 7: Kennzahlen pro Monat, Hälftenvergleich und Trendtest |
 | `time_variation_12m.png`, `time_variation_120m.png` | Schritt 7: gleitende Mittelwerte |
 
@@ -1167,8 +1217,8 @@ output/
 | `disagreement_distribution.csv` | Verteilung der MFD im Querschnitt |
 | `fama_macbeth_regressions.csv` | Renditen auf MFD, allein und zusammen mit der Prognose |
 | `sorted_portfolios.csv` | Dezile nach MFD (High = geringste Disagreement) |
-| `strategy_returns.csv`, `performance.csv`, `performance.png` | Long die 20 % mit der geringsten MFD gegen Equal Weight |
-| `time_variation_monthly.csv`, `time_variation_trends.csv` | H−L und Strategie − Equal Weight pro Monat, Trendtests |
+| `strategy_returns.csv`, `performance.csv`, `performance.png` | Long die 10 % mit der geringsten, Short die 10 % mit der höchsten MFD, beides; gegen Equal Weight |
+| `time_variation_monthly.csv`, `time_variation_trends.csv` | H−L, Long-Seite und Short-Seite pro Monat, Trendtests |
 | `time_variation_12m.png`, `time_variation_120m.png` | gleitende Mittelwerte |
 
 ---

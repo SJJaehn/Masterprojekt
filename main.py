@@ -49,7 +49,8 @@ TEST_START = "1974-01-01"    # erster Prognosemonat (Paper: 1974)
 TEST_END = "2013-12-31"      # letzter Prognosemonat (Paper: 2013; None: bis zum Ende der Daten, 2024)
 MODELS_TO_RUN = ["OLS", "DecisionTree", "RandomForest", "XGBoost", "Investors"]
                              # "Investors": 100 simulierte Investoren, liefert die Disagreement für Schritt 8
-LONG_PCT = 0.20              # Strategie: Kauf der besten 20 % der Aktien nach prognostizierter Rendite
+LONG_PCT = 0.10              # Strategien: Kauf der besten 10 % der Aktien (höchste Prognose bzw. geringste Disagreement)
+SHORT_PCT = 0.10             #   und Leerverkauf der schlechtesten 10 %; gerechnet werden Long, Short und beides
 ROLLING_MONTHS = 12          # Schritt 7: gleitender Mittelwert (zusätzlich immer 120 Monate wie in Fig. 2)
 
 # Ergebnisse: output/single oder output/stacked, darin je ein Ordner für die beiden Signale:
@@ -181,13 +182,14 @@ print("\n  EW/VW: equal-/value-weighted | Pred/Avg/Std in % per month | Sharpe a
 
 
 # =============================================================================
-# 6. Handelsstrategie: Long Top 20 % gegen Equal Weight
+# 6. Handelsstrategien: Long, Short und Long-Short gegen Equal Weight
 # =============================================================================
-util.print_section(f"6. Trading strategy: long top {LONG_PCT:.0%}")
+util.print_section(f"6. Trading strategies: long top {LONG_PCT:.0%}, short bottom {SHORT_PCT:.0%}, both")
 
-strategy = pd.DataFrame({name: util.strategy_returns(preds, name, LONG_PCT) for name in MODELS_TO_RUN})
-strategy["Equal Weight"] = preds.groupby(DATE)[RET].mean()  # Benchmark: alle 500 Aktien gleichgewichtet
-performance = pd.DataFrame({name: util.performance_metrics(strategy[name]) for name in strategy}).T
+# Name: (Anteil long, Anteil short). Long-Short ist selbstfinanzierend: der Leerverkauf bezahlt den Kauf.
+STRATEGIES = {"Long": (LONG_PCT, 0.0), "Short": (0.0, SHORT_PCT), "Long-Short": (LONG_PCT, SHORT_PCT)}
+strategy = util.backtest(preds, MODELS_TO_RUN, STRATEGIES)  # Spalten: (Strategie, Modell) plus Equal Weight
+performance = pd.DataFrame({column: util.performance_metrics(strategy[column]) for column in strategy}).T
 util.print_table(performance, decimals=4)
 
 
@@ -196,16 +198,20 @@ util.print_table(performance, decimals=4)
 # =============================================================================
 util.print_section("7. Evolution through time (Lewellen Section 3.6 / Fig. 2)")
 
-# Drei Kennzahlen für jeden Monat einzeln:
+# Vier Kennzahlen für jeden Monat einzeln:
 # - Steigung der Regression realisierte Rendite auf Prognose (ihr Mittelwert ist die Steigung aus Tabelle 3)
 # - Rendite High-Dezil minus Low-Dezil, gleichgewichtet (vgl. Tabelle 6)
-# - Rendite der Strategie aus Schritt 6 minus Equal Weight
+# - Long-Seite: Rendite der gekauften Aktien minus Equal Weight
+# - Short-Seite: Equal Weight minus Rendite der leerverkauften Aktien (wie viel schlechter sie als der Markt waren;
+#   die Short-Rendite ist minus deren Rendite, daher Equal Weight + Short)
+equal_weight = strategy[("Benchmark", "Equal Weight")]
 series = {
     "Predictive slope": pd.DataFrame(
         {name: util.fama_macbeth(preds, RET, [name])[1][name] for name in MODELS_TO_RUN}),
     "H-L return EW (%)": pd.DataFrame(
         {name: util.portfolio_returns(preds, name)[1]["H-L"] for name in MODELS_TO_RUN}) * 100,
-    "Strategy minus Equal Weight (%)": strategy[MODELS_TO_RUN].sub(strategy["Equal Weight"], axis=0) * 100,
+    "Long minus Equal Weight (%)": strategy["Long"].sub(equal_weight, axis=0) * 100,
+    "Equal Weight minus shorted stocks (%)": strategy["Short"].add(equal_weight, axis=0) * 100,
 }
 
 # Test auf einen Rückgang: zwei gleich lange Hälften (Standard: 1974-1993 und 1994-2013) und linearer Trend
@@ -239,8 +245,10 @@ for filename, table in results.items():
     table.to_csv(os.path.join(PRED_DIR, filename))
 
 period = f"{preds[DATE].min():%Y} - {preds[DATE].max():%Y}, top {UNIVERSE_SIZE} stocks, {ESTIMATION}, {WINDOW_TYPE}"
-util.plot_performance(strategy, f"Long top {LONG_PCT:.0%} by predicted return vs. equal weight ({period})",
-                      os.path.join(PRED_DIR, "performance.png"))
+for label in STRATEGIES:  # eine Grafik pro Strategie: alle Modelle und Equal Weight
+    util.plot_performance(strategy[label].assign(**{"Equal Weight": equal_weight}),
+                          f"{label} by predicted return vs. equal weight ({period})",
+                          os.path.join(PRED_DIR, f"performance_{label.lower()}.png"))
 for window in [ROLLING_MONTHS, 120]:
     util.plot_time_variation(series, window, f"Predictive ability through time, {window}-month rolling mean "
                              f"({period})", os.path.join(PRED_DIR, f"time_variation_{window}m.png"))
@@ -274,21 +282,21 @@ if "MFD" in preds:
     print("\n  Deciles sorted by MFD: High = lowest disagreement, Low = highest disagreement")
     util.print_table(mfd_portfolios)
 
-    # 8c. Strategie (wie Schritt 6): Kauf der 20 % Aktien mit der geringsten Disagreement
-    mfd_strategy = pd.DataFrame({
-        "Lowest MFD": util.strategy_returns(preds, "MFD", LONG_PCT, high_is_good=False),
-        "Equal Weight": strategy["Equal Weight"],
-    })
-    mfd_performance = pd.DataFrame({name: util.performance_metrics(mfd_strategy[name]) for name in mfd_strategy}).T
-    print(f"\n  Strategy: long the {LONG_PCT:.0%} of stocks with the lowest disagreement")
+    # 8c. Strategien (wie Schritt 6): Long = Kauf der 10 % mit der geringsten Disagreement,
+    #     Short = Leerverkauf der 10 % mit der höchsten Disagreement (laut Paper überbewertet), Long-Short = beides
+    mfd_strategy = util.backtest(preds, ["MFD"], STRATEGIES, high_is_good=False)
+    mfd_performance = pd.DataFrame({column: util.performance_metrics(mfd_strategy[column])
+                                    for column in mfd_strategy}).T
+    print(f"\n  Strategies: long the {LONG_PCT:.0%} with the lowest, short the {SHORT_PCT:.0%} with the highest "
+          "disagreement")
     util.print_table(mfd_performance, decimals=4)
 
-    # 8d. Entwicklung über die Zeit (wie Schritt 7): H-L-Rendite und Überrendite der Strategie pro Monat
+    # 8d. Entwicklung über die Zeit (wie Schritt 7): H-L-Rendite, Long- und Short-Seite gegen Equal Weight pro Monat
     mfd_series = {
         "H-L return EW (%)": util.portfolio_returns(preds, "MFD", high_is_good=False)[1][["H-L"]]
                              .rename(columns={"H-L": "MFD"}) * 100,
-        "Strategy minus Equal Weight (%)": (mfd_strategy[["Lowest MFD"]]
-                                            .sub(mfd_strategy["Equal Weight"], axis=0) * 100),
+        "Long minus Equal Weight (%)": mfd_strategy["Long"].sub(equal_weight, axis=0) * 100,
+        "Equal Weight minus shorted stocks (%)": mfd_strategy["Short"].add(equal_weight, axis=0) * 100,
     }
     mfd_trends = pd.concat({label: pd.DataFrame({name: util.trend_test(monthly[name], split_date)
                                                  for name in monthly}).T
@@ -308,7 +316,7 @@ if "MFD" in preds:
     }
     for filename, table in mfd_results.items():
         table.to_csv(os.path.join(MFD_DIR, filename))
-    util.plot_performance(mfd_strategy, f"Long the {LONG_PCT:.0%} with the lowest disagreement vs. equal weight "
+    util.plot_performance(mfd_strategy.droplevel(1, axis=1), f"Strategies sorted by disagreement vs. equal weight "
                           f"({period})", os.path.join(MFD_DIR, "performance.png"))
     for window in [ROLLING_MONTHS, 120]:
         util.plot_time_variation(mfd_series, window, f"Disagreement effect through time, {window}-month rolling "

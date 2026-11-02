@@ -260,18 +260,42 @@ def sorted_portfolios(preds, model, n_groups=10, high_is_good=True, value_label=
     return table
 
 
-def strategy_returns(preds, model, long_pct, high_is_good=True):
-    """Rendite pro Monat: gleichgewichteter Kauf der `long_pct` Aktien mit dem höchsten Wert von `model`.
+def strategy_returns(preds, model, long_pct=0.0, short_pct=0.0, high_is_good=True):
+    """Rendite pro Monat einer gleichgewichteten Long-, Short- oder Long-Short-Strategie.
 
-    Mit `high_is_good=False` die Aktien mit dem niedrigsten Wert (z. B. der geringsten Disagreement).
+    Jeden Monat werden die Aktien nach `model` sortiert, von der besten zur schlechtesten:
+    - long  die besten `long_pct` Aktien kaufen
+    - short die schlechtesten `short_pct` Aktien leerverkaufen (Rendite = minus deren Rendite)
+    Sind beide gesetzt, ist die Rendite Long minus Short (selbstfinanzierend: der Erlös aus dem
+    Leerverkauf bezahlt den Kauf). "Beste" heißt höchster Wert von `model`, mit
+    `high_is_good=False` niedrigster Wert (z. B. die geringste Disagreement).
     """
     returns = {}
     for date, g in preds.groupby(DATE):
         # realisierte Renditen, sortiert von der besten zur schlechtesten Aktie nach `model`
         realised = g.sort_values(model, ascending=not high_is_good, kind="stable")[RET]
-        n_long = max(1, int(round(len(realised) * long_pct)))  # mindestens 1 Aktie
-        returns[date] = realised.iloc[:n_long].mean()
+        ret = 0.0
+        if long_pct > 0:
+            n_long = max(1, int(round(len(realised) * long_pct)))  # mindestens 1 Aktie
+            ret += realised.iloc[:n_long].mean()
+        if short_pct > 0:
+            n_short = max(1, int(round(len(realised) * short_pct)))
+            ret -= realised.iloc[-n_short:].mean()
+        returns[date] = ret
     return pd.Series(returns, name=model)
+
+
+def backtest(preds, signals, strategies, high_is_good=True):
+    """Monatsrenditen aller Strategien für alle Signale, plus Equal Weight als Benchmark.
+
+    `strategies` ordnet jedem Strategienamen (Anteil long, Anteil short) zu, z. B.
+    {"Long": (0.1, 0.0), "Short": (0.0, 0.1), "Long-Short": (0.1, 0.1)}.
+    Rückgabe: Tabelle Monate x Spalten (Strategie, Signal).
+    """
+    returns = {(label, name): strategy_returns(preds, name, long_pct, short_pct, high_is_good)
+               for label, (long_pct, short_pct) in strategies.items() for name in signals}
+    returns[("Benchmark", "Equal Weight")] = preds.groupby(DATE)[RET].mean()  # alle Aktien gleichgewichtet
+    return pd.DataFrame(returns)
 
 
 def performance_metrics(returns):
