@@ -1016,7 +1016,7 @@ Derselbe Zeitraum (1974–2013), aber jedes Modell lernt auf allen 120 Monaten
 zugleich (60 000 Zeilen) und wird alle 12 Monate neu trainiert. Alle
 Ergebnisse liegen in `output/stacked/`.
 
-| Modell | Steigung Tab. 3 (t) – Fama-MacBeth | Steigung Tab. 3 (t) – gestapelt | H−L EW in % (t) – Fama-MacBeth | H−L EW in % (t) – gestapelt |
+| Modell | Steigung Tab. 3 (t) – single | Steigung Tab. 3 (t) – stacked | H−L EW in % (t) – single | H−L EW in % (t) – stacked |
 | --- | --- | --- | --- | --- |
 | OLS | 0,42 (2,28) | 0,36 (2,74) | 0,71 (2,56) | 0,64 (2,38) |
 | Decision Tree | 0,31 (1,72) | 0,10 (1,61) | 0,39 (1,49) | 0,22 (1,17) |
@@ -1037,25 +1037,45 @@ Ergebnisse liegen in `output/stacked/`.
 
 ### Ergebnisse zu Schritt 8: Machine Forecast Disagreement
 
-| Lauf | MFD Mittel (% p. M.) | H−L nach MFD, EW in % (t) | Steigung MFD in FM-Regression (t) |
-| --- | --- | --- | --- |
-| Fama-MacBeth, 1974–2013 | 0,27 | −0,10 (−0,44) | −0,17 (−0,13) |
-| Fama-MacBeth, 1974–2024 | 0,26 | −0,07 (−0,34) | 0,04 (0,03) |
-| gestapelt, 1974–2013 | 0,51 | 0,02 (0,08) | 0,03 (0,19) |
+Alle Zahlen in `output/<Lauf>/investor_disagreement/`. Sortierung wie oben
+erklärt: **High = geringste, Low = höchste Disagreement**; ein positives H−L
+entspräche dem Befund des Papers.
 
-- **Mit unserer Umsetzung sagt die Disagreement die Renditen nicht voraus.**
-  Keine der Kennzahlen ist auch nur annähernd signifikant; das Vorzeichen ist
-  nur im Fama-MacBeth-Lauf bis 2013 das im Paper erwartete.
-- Die MFD hängt deutlich mit dem **Risiko** zusammen: Die Volatilität der
-  Dezilportfolios steigt von 4,3 % (Low) auf 6,6 % (High) pro Monat
-  (gestapelt: 4,5 % auf 8,1 %). Investoren sind sich bei riskanten Aktien
-  uneiniger – das passt zum Paper, in dem MFD mit idiosynkratischer
-  Volatilität korreliert.
-- Mögliche Gründe für den Unterschied zum Paper: nur die 500 größten Aktien
-  (der MFD-Effekt ist im Paper bei kleinen, schwer leerzuverkaufenden Aktien
-  am stärksten), nur 14 statt 153 Kennzahlen (weniger Spielraum für
-  unterschiedliche Informationsmengen) und ein Baum statt eines Random Forest
-  pro Investor.
+| Lauf | MFD Mittel (% p. M.) | Low (höchste MFD), EW in % | High (geringste MFD), EW in % | H−L EW in % (t) | H−L VW in % (t) | Steigung MFD in FM-Regression (t) |
+| --- | --- | --- | --- | --- | --- | --- |
+| `single`, 1974–2013 | 0,27 | 0,66 | 0,77 | 0,10 (0,44) | 0,10 (0,36) | −0,17 (−0,13) |
+| `single_until_2024`, 1974–2024 | 0,26 | 0,72 | 0,78 | 0,07 (0,34) | −0,02 (−0,08) | 0,04 (0,03) |
+| `stacked`, 1974–2013 | 0,51 | 0,75 | 0,71 | −0,03 (−0,11) | −0,18 (−0,59) | 0,03 (0,19) |
+
+Strategie: Long die 20 % mit der geringsten Disagreement gegen Equal Weight
+
+| Lauf | Rendite p. a. | Volatilität p. a. | Sharpe Ratio | Max Drawdown | Equal Weight: Rendite / Sharpe |
+| --- | --- | --- | --- | --- | --- |
+| `single`, 1974–2013 | 8,46 % | 14,36 % | 0,64 | −40,97 % | 7,06 % / 0,50 |
+| `single_until_2024` | 8,69 % | 14,25 % | 0,66 | −40,97 % | 7,61 % / 0,53 |
+| `stacked`, 1974–2013 | 7,45 % | 15,38 % | 0,55 | −49,61 % | 7,06 % / 0,50 |
+
+- **Die Disagreement sagt die Renditen mit unserer Umsetzung nicht voraus.**
+  Die H−L-Renditen liegen nahe null, keine t-Statistik ist auch nur annähernd
+  signifikant. Im Modus `single` zeigt das Vorzeichen in die Richtung des
+  Papers, im Modus `stacked` nicht.
+- **Die Strategie mit der geringsten Disagreement schlägt Equal Weight vor
+  allem beim Risiko**, kaum bei der Rendite: Die Volatilität ist rund 2
+  Prozentpunkte niedriger, die Rendite nur 0,4–1,4 Prozentpunkte höher. Das
+  liegt daran, dass die MFD stark mit der Volatilität zusammenhängt: Die
+  Dezilportfolios schwanken bei geringster Disagreement um 4,3 % pro Monat,
+  bei höchster um 6,6 % (`stacked`: 4,5 % und 8,1 %). Investoren sind sich bei
+  riskanten Aktien uneiniger – das passt zum Paper, in dem MFD mit der
+  idiosynkratischen Volatilität korreliert.
+- **Kein Trend über die Zeit**: alle |t| < 1,1.
+- **Warum schwächer als im Paper?** Laut Paper entsteht der Effekt durch
+  Überbewertung bei teuren Leerverkäufen (Miller, 1977) und sitzt vor allem
+  auf der Short-Seite (Aktien mit hoher Disagreement). Bei Aktien mit den
+  niedrigsten Leihgebühren findet das Paper selbst nur einen Alpha-Spread von
+  −0,12 % pro Monat (gegenüber −2,36 % bei den höchsten). Die 500 größten
+  US-Aktien sind billig leerzuverkaufen und überwiegend institutionell
+  gehalten – genau die Gruppe, in der der Effekt kaum auftritt. Dazu kommen
+  14 statt 153 Kennzahlen und ein Baum statt eines Random Forest pro Investor.
 
 Mögliche Ansatzpunkte für die Arbeit: andere Hyperparameter in `models.py`
 sowie Lewellens Modell 1 und 2 im Vergleich (`FEATURE_SET`).
