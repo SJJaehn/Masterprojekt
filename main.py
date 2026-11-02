@@ -16,7 +16,8 @@ von oben nach unten durch:
     8. Machine Forecast Disagreement (Bali, Kelly, Mörke & Rahman, 2026): wie
        stark sich 100 simulierte Investoren über eine Aktie uneinig sind, und
        ob das die Renditen vorhersagt
-Ergebnisse (CSV-Dateien und Grafiken) landen im Ordner output/.
+Ergebnisse (CSV-Dateien und Grafiken) landen in output/single bzw. output/stacked, jeweils aufgeteilt in
+predicted_return/ (Schritte 3-7) und investor_disagreement/ (Schritt 8).
 
 models.py enthält die Modelle und das Schätzverfahren, util.py die Rechenbausteine.
 """
@@ -37,8 +38,9 @@ from util import DATE, ID, RET, SIZE  # Spaltennamen: Monatsende, Aktie, Rendite
 FEATURE_SET = "Model 3"      # Prädiktoren nach Lewellen (2015): "Model 1" (Größe, B/M, Momentum),
                              # "Model 2" (+ Emissionen, Accruals, Profitabilität, Asset Growth), "Model 3" (alle 14)
 UNIVERSE_SIZE = 500          # pro Monat nur die 500 größten Aktien (max. 1000)
-ESTIMATION = "fama_macbeth"  # "fama_macbeth": ein Modell pro Monat, Prognose = Mittel der Monatsmodelle (Lewellen)
-                             # "stacked": ein Modell auf allen gestapelten Monaten des Fensters (Gu, Kelly & Xiu)
+ESTIMATION = "single"        # "single": ein Modell pro Monat, Prognose = Mittel der Monatsmodelle (Lewellen,
+                             #   Fama-MacBeth); "stacked": ein Modell auf allen gestapelten Monaten des
+                             #   Fensters (Gu, Kelly & Xiu)
 WINDOW_TYPE = "rolling"      # "rolling": die letzten TRAIN_WINDOW Monate (Paper: Hauptergebnis)
                              # "expanding": alle Monate seit 1964 (Paper: "cumulative")
 TRAIN_WINDOW = 120           # Fensterlänge in Monaten (Paper: 10 Jahre); bei "expanding" die Mindestlänge
@@ -50,9 +52,15 @@ MODELS_TO_RUN = ["OLS", "DecisionTree", "RandomForest", "XGBoost", "Investors"]
 LONG_PCT = 0.20              # Strategie: Kauf der besten 20 % der Aktien nach prognostizierter Rendite
 ROLLING_MONTHS = 12          # Schritt 7: gleitender Mittelwert (zusätzlich immer 120 Monate wie in Fig. 2)
 
+# Ergebnisse: output/single oder output/stacked, darin je ein Ordner für die beiden Signale:
+#   predicted_return/       Auswertung der Renditeprognosen wie im Paper (Tabellen 2, 3, 6, Strategie, Zeitverlauf)
+#   investor_disagreement/  dieselbe Auswertung für die Disagreement der Investoren (Schritt 8)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = os.path.join(BASE_DIR, "output")
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+OUTPUT_DIR = os.path.join(BASE_DIR, "output", ESTIMATION)
+PRED_DIR = os.path.join(OUTPUT_DIR, "predicted_return")
+MFD_DIR = os.path.join(OUTPUT_DIR, "investor_disagreement")
+for folder in [PRED_DIR, MFD_DIR]:
+    os.makedirs(folder, exist_ok=True)
 
 
 # =============================================================================
@@ -84,8 +92,8 @@ print(f"  {len(df):,} rows | {df[ID].nunique():,} stocks | {df[DATE].nunique()} 
 # 2. Schätzung: Fama-MacBeth (Mittel der Monatsmodelle) oder gestapelt (ein Modell auf dem ganzen Fenster)
 # =============================================================================
 window_label = f"{TRAIN_WINDOW}-month rolling window" if WINDOW_TYPE == "rolling" else "expanding window"
-if ESTIMATION == "fama_macbeth":
-    method_label = f"Fama-MacBeth: one model per month, forecasts averaged over a {window_label}"
+if ESTIMATION == "single":
+    method_label = f"single: one model per month, forecasts averaged over a {window_label}"
 else:
     method_label = f"stacked: one model on a {window_label}, refit every {REFIT_EVERY} months"
 util.print_section(f"2. Estimation ({method_label})")
@@ -103,7 +111,7 @@ y = df[RET].to_numpy(dtype=float)       # Rendite im Monat t + 1
 # Ergebnistabelle: eine Zeile pro Prognosemonat und Aktie, eine Prognosespalte pro Modell
 is_test_row = (month_nr >= first) & (month_nr <= last)
 preds = df.loc[is_test_row, [DATE, ID, SIZE, RET]].reset_index(drop=True)
-estimate = models.fama_macbeth_forecast if ESTIMATION == "fama_macbeth" else models.stacked_forecast
+estimate = models.fama_macbeth_forecast if ESTIMATION == "single" else models.stacked_forecast
 options = {"refit_every": REFIT_EVERY} if ESTIMATION == "stacked" else {}
 importances = {}
 for name in MODELS_TO_RUN:
@@ -211,38 +219,10 @@ print(f"  2nd half from {split_date:%Y-%m} | Difference: 2nd minus 1st half | Tr
 
 
 # =============================================================================
-# 8. Machine Forecast Disagreement (Bali, Kelly, Mörke & Rahman, 2026)
+# Ergebnisse der Renditeprognosen speichern: output/<ESTIMATION>/predicted_return
 # =============================================================================
-mfd_tables = {}
-if "MFD" in preds:
-    util.print_section("8. Machine forecast disagreement (MFD)")
-
-    # Verteilung der MFD im Querschnitt, über die Monate gemittelt (in % pro Monat)
-    mfd_distribution = preds.groupby(DATE)["MFD"].describe(percentiles=[0.1, 0.5, 0.9]).mean() * 100
-    print(f"  MFD in % per month: mean {mfd_distribution['mean']:.3f} | p10 {mfd_distribution['10%']:.3f} | "
-          f"median {mfd_distribution['50%']:.3f} | p90 {mfd_distribution['90%']:.3f}")
-
-    # Dezilportfolios nach MFD: Low = Aktien, über die sich die Investoren am meisten einig sind.
-    # Das Paper findet: hohe Disagreement -> niedrige Rendite, also H-L < 0 (Paper: Low minus High > 0).
-    mfd_tables["mfd_sorted_portfolios"] = util.sorted_portfolios(preds, "MFD")
-    print("\n  Deciles sorted by MFD (Pred = mean MFD in %):")
-    util.print_table(mfd_tables["mfd_sorted_portfolios"])
-
-    # Fama-MacBeth-Regression der Renditen auf die MFD, allein und zusammen mit der mittleren Prognose
-    mfd_tables["mfd_regressions"] = pd.concat({
-        "MFD only": util.fama_macbeth(preds, RET, ["MFD"])[0],
-        "MFD + forecast": util.fama_macbeth(preds, RET, ["MFD", "Investors"])[0],
-    }, names=["regression", "variable"])
-    print("\n  Fama-MacBeth regressions of returns on MFD (Newey-West t-stats):")
-    util.print_table(mfd_tables["mfd_regressions"], decimals=3)
-    print("  A negative MFD slope means: the more the investors disagree, the lower the next-month return")
-
-
-# =============================================================================
-# Ergebnisse speichern
-# =============================================================================
+pd.DataFrame(preds.set_index([DATE, ID])).to_csv(os.path.join(OUTPUT_DIR, "predictions.csv.gz"))  # alle Prognosen
 results = {
-    "predictions.csv.gz": preds.set_index([DATE, ID]),  # komprimiert, eine Zeile pro Monat und Aktie
     "feature_importance.csv": importances,
     "fama_macbeth_regressions.csv": table2,
     "fama_macbeth_monthly_coefficients.csv": fm_monthly,
@@ -254,15 +234,83 @@ results = {
     "performance.csv": performance,
     "time_variation_monthly.csv": pd.concat(series, axis=1),
     "time_variation_trends.csv": trends,
-    **{f"{name}.csv": table for name, table in mfd_tables.items()},
 }
 for filename, table in results.items():
-    table.to_csv(os.path.join(OUTPUT_DIR, filename))
+    table.to_csv(os.path.join(PRED_DIR, filename))
 
 period = f"{preds[DATE].min():%Y} - {preds[DATE].max():%Y}, top {UNIVERSE_SIZE} stocks, {ESTIMATION}, {WINDOW_TYPE}"
 util.plot_performance(strategy, f"Long top {LONG_PCT:.0%} by predicted return vs. equal weight ({period})",
-                      os.path.join(OUTPUT_DIR, "performance.png"))
+                      os.path.join(PRED_DIR, "performance.png"))
 for window in [ROLLING_MONTHS, 120]:
     util.plot_time_variation(series, window, f"Predictive ability through time, {window}-month rolling mean "
-                             f"({period})", os.path.join(OUTPUT_DIR, f"time_variation_{window}m.png"))
-print(f"\n  Results saved to '{OUTPUT_DIR}'")
+                             f"({period})", os.path.join(PRED_DIR, f"time_variation_{window}m.png"))
+print(f"\n  Results saved to '{PRED_DIR}'")
+
+
+# =============================================================================
+# 8. Machine Forecast Disagreement (Bali, Kelly, Mörke & Rahman, 2026)
+#    Dieselbe Auswertung wie in den Schritten 4-7, nur mit der Disagreement statt der Prognose.
+#    Das Paper findet: je größer die Disagreement, desto NIEDRIGER die Rendite im Folgemonat.
+#    Deshalb wird hier umgekehrt sortiert: High = geringste Disagreement, Low = höchste Disagreement.
+#    Ein positives H-L heißt also: der Effekt aus dem Paper ist da.
+# =============================================================================
+if "MFD" in preds:
+    util.print_section("8. Machine forecast disagreement (MFD)")
+
+    # 8a. Verteilung und Fama-MacBeth-Regression (wie Tabelle 3): Verteilung der MFD im Querschnitt
+    #     (in % pro Monat) und Regression der Renditen auf die MFD, allein und zusammen mit der Prognose
+    mfd_distribution = preds.groupby(DATE)["MFD"].describe(percentiles=[0.1, 0.5, 0.9]).mean() * 100
+    mfd_regressions = pd.concat({
+        "MFD only": util.fama_macbeth(preds, RET, ["MFD"])[0],
+        "MFD + forecast": util.fama_macbeth(preds, RET, ["MFD", "Investors"])[0],
+    }, names=["regression", "variable"])
+    print(f"  MFD in % per month: mean {mfd_distribution['mean']:.3f} | p10 {mfd_distribution['10%']:.3f} | "
+          f"median {mfd_distribution['50%']:.3f} | p90 {mfd_distribution['90%']:.3f}")
+    print("\n  Fama-MacBeth regressions of returns on MFD (paper: negative MFD slope):")
+    util.print_table(mfd_regressions, decimals=3)
+
+    # 8b. Dezilportfolios nach der Disagreement (wie Tabelle 6)
+    mfd_portfolios = util.sorted_portfolios(preds, "MFD", high_is_good=False, value_label="MFD (%)")
+    print("\n  Deciles sorted by MFD: High = lowest disagreement, Low = highest disagreement")
+    util.print_table(mfd_portfolios)
+
+    # 8c. Strategie (wie Schritt 6): Kauf der 20 % Aktien mit der geringsten Disagreement
+    mfd_strategy = pd.DataFrame({
+        "Lowest MFD": util.strategy_returns(preds, "MFD", LONG_PCT, high_is_good=False),
+        "Equal Weight": strategy["Equal Weight"],
+    })
+    mfd_performance = pd.DataFrame({name: util.performance_metrics(mfd_strategy[name]) for name in mfd_strategy}).T
+    print(f"\n  Strategy: long the {LONG_PCT:.0%} of stocks with the lowest disagreement")
+    util.print_table(mfd_performance, decimals=4)
+
+    # 8d. Entwicklung über die Zeit (wie Schritt 7): H-L-Rendite und Überrendite der Strategie pro Monat
+    mfd_series = {
+        "H-L return EW (%)": util.portfolio_returns(preds, "MFD", high_is_good=False)[1][["H-L"]]
+                             .rename(columns={"H-L": "MFD"}) * 100,
+        "Strategy minus Equal Weight (%)": (mfd_strategy[["Lowest MFD"]]
+                                            .sub(mfd_strategy["Equal Weight"], axis=0) * 100),
+    }
+    mfd_trends = pd.concat({label: pd.DataFrame({name: util.trend_test(monthly[name], split_date)
+                                                 for name in monthly}).T
+                            for label, monthly in mfd_series.items()}, names=["series", "signal"])
+    print("\n  Evolution through time (trend tests as in step 7):")
+    util.print_table(mfd_trends)
+
+    # Speichern: output/<ESTIMATION>/investor_disagreement
+    mfd_results = {
+        "disagreement_distribution.csv": mfd_distribution.to_frame("MFD (%)"),
+        "fama_macbeth_regressions.csv": mfd_regressions,
+        "sorted_portfolios.csv": mfd_portfolios,
+        "strategy_returns.csv": mfd_strategy,
+        "performance.csv": mfd_performance,
+        "time_variation_monthly.csv": pd.concat(mfd_series, axis=1),
+        "time_variation_trends.csv": mfd_trends,
+    }
+    for filename, table in mfd_results.items():
+        table.to_csv(os.path.join(MFD_DIR, filename))
+    util.plot_performance(mfd_strategy, f"Long the {LONG_PCT:.0%} with the lowest disagreement vs. equal weight "
+                          f"({period})", os.path.join(MFD_DIR, "performance.png"))
+    for window in [ROLLING_MONTHS, 120]:
+        util.plot_time_variation(mfd_series, window, f"Disagreement effect through time, {window}-month rolling "
+                                 f"mean ({period})", os.path.join(MFD_DIR, f"time_variation_{window}m.png"))
+    print(f"\n  Results saved to '{MFD_DIR}'")

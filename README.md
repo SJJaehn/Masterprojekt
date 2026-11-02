@@ -52,7 +52,7 @@ python main.py
 
 Das Skript lädt die vorbereiteten Daten aus `data/`, rechnet alle acht
 Schritte nacheinander und schreibt die Tabellen in die Konsole. Ergebnisse
-(CSV-Dateien und Grafiken) landen im Ordner `output/`. Die Ergebnisse des
+(CSV-Dateien und Grafiken) landen im Ordner `output/` (Aufbau siehe unten). Die Ergebnisse des
 Standardlaufs liegen dort bereits im Repository – man muss das Skript also
 nicht laufen lassen, um sie anzusehen. Ein kompletter Lauf
 mit allen fünf Modellen dauert auf einem Rechner mit 4 Kernen etwa
@@ -66,7 +66,7 @@ Ausprobieren `MODELS_TO_RUN` in `main.py` auf weniger Modelle kürzen.
 | `main.py` | **Hier anfangen.** Ein Skript, das von oben nach unten läuft: oben die Einstellungen, darunter die sieben Schritte, jeder unter einer eigenen Überschrift. |
 | `models.py` | Die Modelle mit ihren Hyperparametern, die simulierten Investoren und die beiden Schätzverfahren (Schritt 2) |
 | `util.py` | Werkzeugkasten: Datenaufbereitung, Fama-MacBeth-Regression, Newey-West-Test, Portfolios, Kennzahlen, Grafiken |
-| `output/` | Ergebnisse des Standardlaufs: alle Tabellen als CSV und die Grafiken |
+| `output/` | Ergebnisse: `single/` (Standard), `stacked/` und `single_until_2024/`, jeweils mit `predicted_return/` und `investor_disagreement/` – siehe [Ausgabedateien](#ausgabedateien-in-output) |
 | `data/jkp_top1000_25y_5y_rank.csv.gz` | Vorbereitete Daten (aus den 6-GB-Rohdaten des Tutors erzeugt) |
 | `Thema 3 - Stock Return Prediction/` | MATLAB-Skripte des Tutors, an denen sich die Datenaufbereitung orientiert |
 | `ssrn-2511246.pdf` | Das Paper |
@@ -456,11 +456,11 @@ last_month = last if expanding else min(j + window, last)
 Im ersten Prognosemonat (Januar 1974) sind beide gleich, weil es noch genau
 120 Monate Historie gibt; danach wächst das Fenster bis auf 600 Monate (2013).
 
-### 2h) Fama-MacBeth oder gestapelte Daten (`ESTIMATION`)
+### 2h) Einzelne Monatsmodelle oder gestapelte Daten (`ESTIMATION`)
 
 | `ESTIMATION` | Training | Prognose | Vorbild |
 | --- | --- | --- | --- |
-| `"fama_macbeth"` (Standard) | **120 Modelle**, jedes auf **einem** Monat (~500 Zeilen) | Mittel der 120 Prognosen | Lewellen (2015) |
+| `"single"` (Standard) | **120 Modelle**, jedes auf **einem** Monat (~500 Zeilen) | Mittel der 120 Prognosen | Lewellen (2015) |
 | `"stacked"` | **ein Modell** auf allen 120 Monaten **untereinandergestapelt** (~60 000 Zeilen) | direkt die Prognose dieses Modells; neu trainiert alle `REFIT_EVERY = 12` Monate | Gu, Kelly & Xiu (2020); auch das MFD-Paper |
 
 Beide Verfahren nutzen dieselben Informationen (die 10 Jahre vor *t*). Der
@@ -709,7 +709,7 @@ wealth = (1 + returns).cumprod()
 | Sharpe Ratio | mittlere Überrendite / Standardabweichung × √12 (die JKP-Renditen sind bereits Überrenditen über den risikofreien Zins) |
 | Max Drawdown | größter prozentualer Verlust vom bisherigen Höchststand |
 
-Die Grafik `output/performance.png` zeigt die Wertentwicklung von 1 investierten
+Die Grafik `output/single/predicted_return/performance.png` zeigt die Wertentwicklung von 1 investierten
 Dollar je Modell gegen Equal Weight (logarithmische Skala: gleiche prozentuale
 Rendite ergibt gleiche Steigung).
 
@@ -761,9 +761,9 @@ rolling = monthly.rolling(window).mean()
 
 Es gibt zwei Grafiken:
 
-- `output/time_variation_12m.png` – **12 Monate**: zeigt einzelne Jahre und
+- `time_variation_12m.png` – **12 Monate**: zeigt einzelne Jahre und
   Krisen deutlich, schwankt aber stark (Einstellung `ROLLING_MONTHS`).
-- `output/time_variation_120m.png` – **120 Monate**, wie Lewellens Fig. 2:
+- `time_variation_120m.png` – **120 Monate**, wie Lewellens Fig. 2:
   zeigt den langfristigen Verlauf. Der erste Punkt liegt Ende 1983, weil
   dafür 10 Jahre Prognosen nötig sind.
 
@@ -812,27 +812,44 @@ preds[name] = investor_forecasts.mean(axis=0)
 preds["MFD"] = investor_forecasts.std(axis=0)  # Standardabweichung über die 100 Investoren
 ```
 
-Im Fama-MacBeth-Modus ist die Prognose von Investor *k* das Mittel seiner
-120 Monatsbäume; im gestapelten Modus die Prognose seines einen Baums.
+Im Modus `"single"` ist die Prognose von Investor *k* das Mittel seiner
+120 Monatsbäume; im Modus `"stacked"` die Prognose seines einen Baums.
 
-### Auswertung
+### Auswertung: dasselbe wie für die Prognosen, nur nach Disagreement
 
-1. **Verteilung** der MFD im Querschnitt (Mittelwert, 10 %, Median, 90 %).
-2. **Dezilportfolios nach MFD** – genau wie Tabelle 6, nur nach der
-   Disagreement statt nach der Prognose sortiert. Low = Aktien, über die sich
-   die Investoren am meisten einig sind. Das Paper erwartet eine
-   **negative** H−L-Rendite (es berichtet Low minus High, also mit
-   umgekehrtem Vorzeichen).
-3. **Fama-MacBeth-Regression** der Renditen auf die MFD, allein und zusammen
-   mit der mittleren Prognose. Eine negative Steigung heißt: mehr Disagreement,
-   niedrigere Rendite – auch wenn man die erwartete Rendite berücksichtigt.
+Die Disagreement wird genauso ausgewertet wie die Renditeprognosen in den
+Schritten 4–7; die Ergebnisse liegen im Ordner `investor_disagreement/`
+neben `predicted_return/`.
+
+**Richtung der Sortierung.** Bei den Prognosen ist High das Dezil mit der
+höchsten Prognose – die Aktien, die man kaufen möchte. Bei der Disagreement
+ist es umgekehrt: Laut Paper haben Aktien mit **geringer** Disagreement die
+höheren Renditen. Die Strategie des Papers kauft deshalb die Aktien mit der
+geringsten und verkauft die mit der höchsten Disagreement. Damit die Tabellen
+gleich zu lesen sind, wird hier umgekehrt sortiert:
+
+| Dezil | Prognose (`predicted_return/`) | Disagreement (`investor_disagreement/`) |
+| --- | --- | --- |
+| **High (H)** | höchste Prognose | **geringste** Disagreement |
+| **Low (L)** | niedrigste Prognose | **höchste** Disagreement |
+| **H−L** | Long-Short-Strategie aus Tabelle 6 | Long-Short-Strategie des MFD-Papers |
+
+In beiden Ordnern heißt also: **positives H−L = das Signal funktioniert.**
 
 ```python
-mfd_tables["mfd_regressions"] = pd.concat({
-    "MFD only": util.fama_macbeth(preds, RET, ["MFD"])[0],
-    "MFD + forecast": util.fama_macbeth(preds, RET, ["MFD", "Investors"])[0],
-}, names=["regression", "variable"])
+mfd_portfolios = util.sorted_portfolios(preds, "MFD", high_is_good=False, value_label="MFD (%)")
 ```
+
+`high_is_good=False` dreht die Sortierung um; die erste Spalte der Tabelle
+zeigt statt der mittleren Prognose die mittlere Disagreement (`MFD (%)`).
+
+| | Prognose (Schritte 4–7) | Disagreement (Schritt 8) |
+| --- | --- | --- |
+| Verteilung | Avg, Std, p10, p90 der Prognosen | Mittel, p10, Median, p90 der MFD |
+| Fama-MacBeth-Regression | Renditen auf Prognose (Steigung ideal 1) | Renditen auf MFD, allein und zusammen mit der Prognose (Paper: Steigung negativ) |
+| Dezilportfolios | nach Prognose | nach MFD (High = geringste MFD) |
+| Strategie | Long die 20 % mit der höchsten Prognose | Long die 20 % mit der geringsten MFD |
+| Zeitverlauf | Steigung, H−L, Strategie − Equal Weight | H−L, Strategie − Equal Weight |
 
 Unterschiede zum Paper: 14 statt 153 Kennzahlen, ein Baum statt ein Random
 Forest pro Investor, die 500 größten statt aller Aktien über 5 $. Das Paper
@@ -891,9 +908,9 @@ Beobachtungen, die sich direkt aus den Zahlen ablesen lassen:
 - Die OLS-Steigung von 0,42 liegt am unteren Rand von Lewellens Werten für
   große Aktien (0,44–0,72, Tabelle 3, Panel C).
 
-**Wertentwicklung der Strategie** (`output/performance.png`)
+**Wertentwicklung der Strategie** (`output/single/predicted_return/performance.png`)
 
-![Wertentwicklung der Strategien](output/performance.png)
+![Wertentwicklung der Strategien](output/single/predicted_return/performance.png)
 
 **Schritt 7 – Entwicklung über die Zeit**
 
@@ -912,9 +929,9 @@ Beobachtungen, die sich direkt aus den Zahlen ablesen lassen:
 | | Random Forest | 0,23 | −0,06 | −0,29 (−0,97) | −0,20 (−2,22) |
 | | XGBoost | 0,33 | 0,10 | −0,23 (−0,88) | −0,16 (−1,95) |
 
-![Gleitender 10-Jahres-Mittelwert wie Lewellens Fig. 2](output/time_variation_120m.png)
+![Gleitender 10-Jahres-Mittelwert wie Lewellens Fig. 2](output/single/predicted_return/time_variation_120m.png)
 
-![Gleitender 12-Monats-Mittelwert](output/time_variation_12m.png)
+![Gleitender 12-Monats-Mittelwert](output/single/predicted_return/time_variation_12m.png)
 
 Was die Zahlen zeigen:
 
@@ -946,7 +963,7 @@ Das Paper endet 2013. Um zu prüfen, ob die Strategien **nach** dem Paper noch
 funktionieren, haben wir denselben Lauf mit Prognosen bis November 2024
 wiederholt (`TEST_END = None`). Alles andere ist unverändert; die Prognosen
 für 1974–2013 sind identisch mit dem Hauptlauf. Alle Tabellen und Grafiken
-dieses Laufs liegen in **`output/test_until_2024/`**.
+dieses Laufs liegen in **`output/single_until_2024/`**.
 
 Die entscheidende Frage ist der Zeitraum **2014–2024 (131 Monate)**, den
 das Paper nicht kennt. Mittelwerte pro Monat mit Newey-West-t-Statistik:
@@ -971,7 +988,7 @@ Handelsstrategie Long Top 20 %, nur 2014–2024:
 | XGBoost | 9,29 % | 17,49 % | 0,60 | −36,18 % |
 | Equal Weight | 9,66 % | 15,85 % | 0,66 | −24,58 % |
 
-![Gleitender 10-Jahres-Mittelwert bis 2024](output/test_until_2024/time_variation_120m.png)
+![Gleitender 10-Jahres-Mittelwert bis 2024](output/single_until_2024/predicted_return/time_variation_120m.png)
 
 Was die Zahlen zeigen:
 
@@ -983,7 +1000,7 @@ Was die Zahlen zeigen:
   10-Jahres-Mittelwerte bleiben bis 2024 um null (kurz positiv um 2020/21).
 - Über den ganzen Zeitraum 1974–2024 ist der Rückgang deutlicher als bis
   2013: Der Trend der H−L-Rendite ist für alle vier Modelle negativ mit
-  t zwischen −1,97 und −2,71 (`output/test_until_2024/time_variation_trends.csv`).
+  t zwischen −1,97 und −2,71 (`output/single_until_2024/predicted_return/time_variation_trends.csv`).
 
 Einordnung: Gemessen wird die Überrendite gegenüber dem gleichgewichteten
 Portfolio der 500 größten Aktien, kein risikoadjustiertes Alpha (z. B.
@@ -1083,7 +1100,7 @@ Alle wichtigen Einstellungen stehen oben in `main.py`:
 | --- | --- | --- |
 | `FEATURE_SET` | `"Model 3"` | Lewellens Modell 1, 2 oder 3 |
 | `UNIVERSE_SIZE` | `500` | Anzahl der größten Aktien pro Monat (max. 1000) |
-| `ESTIMATION` | `"fama_macbeth"` | `"fama_macbeth"` (Mittel der Monatsmodelle, wie Lewellen) oder `"stacked"` (ein Modell auf gestapelten Daten, wie Gu, Kelly & Xiu), siehe 2h |
+| `ESTIMATION` | `"single"` | `"single"` (Mittel der Monatsmodelle, wie Lewellen) oder `"stacked"` (ein Modell auf gestapelten Daten, wie Gu, Kelly & Xiu), siehe 2h |
 | `WINDOW_TYPE` | `"rolling"` | `"rolling"` (letzte 10 Jahre) oder `"expanding"` (alle Jahre seit 1964), siehe 2g |
 | `TRAIN_WINDOW` | `120` | Fensterlänge in Monaten (zugleich die Mindesthistorie vor der ersten Prognose) |
 | `REFIT_EVERY` | `12` | nur `"stacked"`: alle wie viele Monate neu trainiert wird |
@@ -1092,29 +1109,47 @@ Alle wichtigen Einstellungen stehen oben in `main.py`:
 | `LONG_PCT` | `0.20` | Strategie aus Schritt 6 |
 | `ROLLING_MONTHS` | `12` | gleitender Mittelwert in Schritt 7 (die 120-Monats-Grafik entsteht immer) |
 
-Die Hyperparameter der Modelle stehen in `MODELS` in `models.py`. Für einen
-zweiten Lauf, der den Hauptlauf nicht überschreiben soll, `OUTPUT_DIR` in
-`main.py` auf einen anderen Ordner setzen (so ist `output/test_until_2024/`
-entstanden).
+Die Hyperparameter der Modelle stehen in `MODELS` in `models.py`. Die
+Ergebnisse landen in `output/<ESTIMATION>`; für einen weiteren Lauf, der
+diese nicht überschreiben soll, `OUTPUT_DIR` in `main.py` auf einen anderen
+Ordner setzen (so ist `output/single_until_2024/` entstanden).
 
 ### Ausgabedateien in `output/`
 
+```
+output/
+├── single/                     ESTIMATION = "single" (Standard), 1974–2013
+│   ├── predictions.csv.gz      alle Prognosen und die MFD: eine Zeile pro Monat und Aktie
+│   ├── predicted_return/       Auswertung der Renditeprognosen (Schritte 3–7)
+│   └── investor_disagreement/  dieselbe Auswertung für die Disagreement (Schritt 8)
+├── stacked/                    ESTIMATION = "stacked", 1974–2013, gleicher Aufbau
+└── single_until_2024/          ESTIMATION = "single", Prognosen bis 2024, gleicher Aufbau
+```
+
+**`predicted_return/`**
+
 | Datei | Inhalt |
 | --- | --- |
-| `predictions.csv.gz` | alle Prognosen: eine Zeile pro Monat und Aktie (komprimiert; Excel öffnet sie nach dem Entpacken) |
 | `fama_macbeth_regressions.csv` | Tabelle 2 |
 | `fama_macbeth_monthly_coefficients.csv` | die monatlichen Regressionskoeffizienten |
 | `forecast_evaluation.csv` | Tabelle 3 |
 | `prediction_metrics.csv`, `forecast_correlations.csv` | weitere Kennzahlen |
 | `sorted_portfolios.csv` | Tabelle 6 |
 | `feature_importance.csv` | Feature Importances der Bäume |
-| `strategy_returns.csv`, `performance.csv`, `performance.png` | Handelsstrategie |
-| `time_variation_monthly.csv` | Schritt 7: die drei Kennzahlen pro Monat und Modell |
-| `time_variation_trends.csv` | Schritt 7: Hälftenvergleich und Trendtest |
+| `strategy_returns.csv`, `performance.csv`, `performance.png` | Handelsstrategie (Schritt 6) |
+| `time_variation_monthly.csv`, `time_variation_trends.csv` | Schritt 7: Kennzahlen pro Monat, Hälftenvergleich und Trendtest |
 | `time_variation_12m.png`, `time_variation_120m.png` | Schritt 7: gleitende Mittelwerte |
-| `mfd_sorted_portfolios.csv`, `mfd_regressions.csv` | Schritt 8: Dezile nach Disagreement und Regressionen |
-| `test_until_2024/` | dieselben Dateien für den Lauf mit Prognosen bis 2024 |
-| `stacked/` | dieselben Dateien für `ESTIMATION = "stacked"` (1974–2013) |
+
+**`investor_disagreement/`**
+
+| Datei | Inhalt |
+| --- | --- |
+| `disagreement_distribution.csv` | Verteilung der MFD im Querschnitt |
+| `fama_macbeth_regressions.csv` | Renditen auf MFD, allein und zusammen mit der Prognose |
+| `sorted_portfolios.csv` | Dezile nach MFD (High = geringste Disagreement) |
+| `strategy_returns.csv`, `performance.csv`, `performance.png` | Long die 20 % mit der geringsten MFD gegen Equal Weight |
+| `time_variation_monthly.csv`, `time_variation_trends.csv` | H−L und Strategie − Equal Weight pro Monat, Trendtests |
+| `time_variation_12m.png`, `time_variation_120m.png` | gleitende Mittelwerte |
 
 ---
 

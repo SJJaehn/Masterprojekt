@@ -207,18 +207,22 @@ def trend_test(series, split_date):
 # Portfolios und Handelsstrategie
 # =============================================================================
 
-def portfolio_returns(preds, model, n_groups=10, value_weighted=False):
-    """Monatliche Prognose und Rendite der nach der Prognose sortierten Portfolios.
+def portfolio_returns(preds, model, n_groups=10, value_weighted=False, high_is_good=True):
+    """Monatliche Prognose und Rendite der nach einer Spalte sortierten Portfolios.
 
-    Jeden Monat werden die Aktien nach ihrer Prognose in `n_groups` gleich große
-    Portfolios eingeteilt (1 = niedrigste Prognose); gleichgewichtet oder nach
-    Marktkapitalisierung gewichtet. Rückgabe: (Prognosen, Renditen), je eine
-    Tabelle Monate x Portfolios plus Spalte H-L (High minus Low).
+    Jeden Monat werden die Aktien nach der Spalte `model` in `n_groups` gleich
+    große Portfolios eingeteilt: 1 = niedrigster Wert, n_groups = höchster Wert.
+    Mit `high_is_good=False` umgekehrt (für die Disagreement: n_groups = geringste
+    Disagreement), damit High immer die erwartet beste Gruppe ist.
+    Gleichgewichtet oder nach Marktkapitalisierung gewichtet. Rückgabe: (Werte
+    der Spalte, Renditen), je eine Tabelle Monate x Portfolios plus Spalte H-L
+    (High minus Low).
     """
-    # Portfolio 1 ... n_groups pro Monat (rank: gleiche Prognosen werden auf die Portfolios verteilt)
+    # Portfolio 1 ... n_groups pro Monat (rank: gleiche Werte werden auf die Portfolios verteilt)
     df = preds.copy()
+    sign = 1 if high_is_good else -1
     df["portfolio"] = df.groupby(DATE)[model].transform(
-        lambda s: pd.qcut(s.rank(method="first"), n_groups, labels=False) + 1)
+        lambda s: pd.qcut((sign * s).rank(method="first"), n_groups, labels=False) + 1)
     grouped = df.groupby([DATE, "portfolio"])
 
     # mittlere Prognose und mittlere Rendite je Monat und Portfolio
@@ -233,18 +237,19 @@ def portfolio_returns(preds, model, n_groups=10, value_weighted=False):
     return pred, ret
 
 
-def sorted_portfolios(preds, model, n_groups=10):
-    """Nach der Prognose sortierte Portfolios (Lewellen, Tabelle 6).
+def sorted_portfolios(preds, model, n_groups=10, high_is_good=True, value_label="Pred (%)"):
+    """Nach einer Spalte sortierte Portfolios (Lewellen, Tabelle 6).
 
-    Pro Portfolio, gleich- (EW) und wertgewichtet (VW):
-    Pred (mittlere Prognose), Avg (mittlere realisierte Rendite), Std (in % pro
-    Monat), annualisierte Sharpe Ratio und Newey-West-t-Statistik.
+    Pro Portfolio, gleich- (EW) und wertgewichtet (VW): mittlerer Wert der
+    Sortierspalte (`value_label`, z. B. Pred = mittlere Prognose), Avg (mittlere
+    realisierte Rendite), Std (in % pro Monat), annualisierte Sharpe Ratio und
+    Newey-West-t-Statistik. `high_is_good` wie in `portfolio_returns`.
     """
     tables = {}
     for weighting, value_weighted in [("EW", False), ("VW", True)]:
-        pred, ret = portfolio_returns(preds, model, n_groups, value_weighted)
+        pred, ret = portfolio_returns(preds, model, n_groups, value_weighted, high_is_good)
         tables[weighting] = pd.DataFrame({
-            "Pred (%)": pred.mean() * 100,
+            value_label: pred.mean() * 100,
             "Avg (%)": ret.mean() * 100,
             "Std (%)": ret.std() * 100,
             "Sharpe": ret.mean() / ret.std() * np.sqrt(12),
@@ -255,12 +260,15 @@ def sorted_portfolios(preds, model, n_groups=10):
     return table
 
 
-def strategy_returns(preds, model, long_pct):
-    """Rendite pro Monat: gleichgewichteter Kauf der `long_pct` Aktien mit der höchsten Prognose."""
+def strategy_returns(preds, model, long_pct, high_is_good=True):
+    """Rendite pro Monat: gleichgewichteter Kauf der `long_pct` Aktien mit dem höchsten Wert von `model`.
+
+    Mit `high_is_good=False` die Aktien mit dem niedrigsten Wert (z. B. der geringsten Disagreement).
+    """
     returns = {}
     for date, g in preds.groupby(DATE):
-        # realisierte Renditen, sortiert von der höchsten zur niedrigsten Prognose
-        realised = g.sort_values(model, ascending=False, kind="stable")[RET]
+        # realisierte Renditen, sortiert von der besten zur schlechtesten Aktie nach `model`
+        realised = g.sort_values(model, ascending=not high_is_good, kind="stable")[RET]
         n_long = max(1, int(round(len(realised) * long_pct)))  # mindestens 1 Aktie
         returns[date] = realised.iloc[:n_long].mean()
     return pd.Series(returns, name=model)
