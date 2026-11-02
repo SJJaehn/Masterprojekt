@@ -1060,7 +1060,7 @@ Strategie: Long die 20 % mit der geringsten Disagreement gegen Equal Weight
   signifikant. Im Modus `single` zeigt das Vorzeichen in die Richtung des
   Papers, im Modus `stacked` nicht.
 - **Die Strategie mit der geringsten Disagreement schlägt Equal Weight vor
-  allem beim Risiko**, kaum bei der Rendite: Die Volatilität ist rund 2
+  allem beim Risiko**, kaum bei der Rendite: Die Volatilität ist 1,2–2,3
   Prozentpunkte niedriger, die Rendite nur 0,4–1,4 Prozentpunkte höher. Das
   liegt daran, dass die MFD stark mit der Volatilität zusammenhängt: Die
   Dezilportfolios schwanken bei geringster Disagreement um 4,3 % pro Monat,
