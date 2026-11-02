@@ -10,6 +10,7 @@ Replikation von **Lewellen (2015), "The Cross-Section of Expected Stock Returns"
 | **Decision Tree** | Teilt die Aktien mit einer Folge von Ja/Nein-Fragen zu ihren Kennzahlen in Gruppen; die Prognose ist die Durchschnittsrendite der Gruppe. |
 | **Random Forest** | Viele leicht unterschiedliche Bäume, deren Prognosen gemittelt werden. |
 | **XGBoost** | Viele kleine Bäume nacheinander; jeder neue Baum korrigiert die Fehler der bisherigen. |
+| **Investors** | 100 simulierte Investoren, jeder ein eigener Baum mit eigener Sicht auf die Daten. Ihre mittlere Prognose ist eine weitere Prognose; wie stark sie sich uneinig sind, ist die **Machine Forecast Disagreement** (Schritt 8). |
 
 Aus Rechenzeitgründen verwenden wir pro Monat nur die **500 größten US-Aktien**.
 
@@ -31,6 +32,7 @@ Finance-Hintergrund geschrieben; Programmierkenntnisse sind nicht nötig.
 - [Schritt 5: Dezilportfolios (Tabelle 6)](#schritt-5-dezilportfolios-tabelle-6)
 - [Schritt 6: Handelsstrategie](#schritt-6-handelsstrategie)
 - [Schritt 7: Entwicklung über die Zeit (Fig. 2)](#schritt-7-entwicklung-über-die-zeit-fig-2)
+- [Schritt 8: Machine Forecast Disagreement](#schritt-8-machine-forecast-disagreement)
 - [Ergebnisse](#ergebnisse)
 - [Abgleich mit dem Paper](#abgleich-mit-dem-paper)
 - [Einstellungen ändern](#einstellungen-ändern)
@@ -48,7 +50,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Das Skript lädt die vorbereiteten Daten aus `data/`, rechnet alle sieben
+Das Skript lädt die vorbereiteten Daten aus `data/`, rechnet alle acht
 Schritte nacheinander und schreibt die Tabellen in die Konsole. Ergebnisse
 (CSV-Dateien und Grafiken) landen im Ordner `output/`. Die Ergebnisse des
 Standardlaufs liegen dort bereits im Repository – man muss das Skript also
@@ -62,14 +64,14 @@ Ausprobieren `MODELS_TO_RUN` in `main.py` auf weniger Modelle kürzen.
 | Datei | Inhalt |
 | --- | --- |
 | `main.py` | **Hier anfangen.** Ein Skript, das von oben nach unten läuft: oben die Einstellungen, darunter die sieben Schritte, jeder unter einer eigenen Überschrift. |
-| `models.py` | Die vier Modelle mit ihren Hyperparametern und das Schätzverfahren (Schritt 2) |
+| `models.py` | Die Modelle mit ihren Hyperparametern, die simulierten Investoren und die beiden Schätzverfahren (Schritt 2) |
 | `util.py` | Werkzeugkasten: Datenaufbereitung, Fama-MacBeth-Regression, Newey-West-Test, Portfolios, Kennzahlen, Grafiken |
 | `output/` | Ergebnisse des Standardlaufs: alle Tabellen als CSV und die Grafiken |
 | `data/jkp_top1000_25y_5y_rank.csv.gz` | Vorbereitete Daten (aus den 6-GB-Rohdaten des Tutors erzeugt) |
 | `Thema 3 - Stock Return Prediction/` | MATLAB-Skripte des Tutors, an denen sich die Datenaufbereitung orientiert |
 | `ssrn-2511246.pdf` | Das Paper |
 
-`main.py` ist durch Überschriften in die sieben Schritte gegliedert, z. B.:
+`main.py` ist durch Überschriften in die acht Schritte gegliedert, z. B.:
 
 ```python
 # =============================================================================
@@ -430,7 +432,100 @@ dieser Tabelle.
 erste Prognosemonat – jede Prognose beruht also auf vollen 120 Monatsmodellen;
 eine Anlaufphase mit kürzeren Fenstern gibt es nicht.
 
-### 2e) Feature Importance
+### 2g) Rollendes oder wachsendes Fenster (`WINDOW_TYPE`)
+
+| `WINDOW_TYPE` | Prognose für Monat *t* nutzt | im Paper |
+| --- | --- | --- |
+| `"rolling"` (Standard) | die Monate *t − 120 … t − 1* | Hauptergebnis ("rolling slopes") |
+| `"expanding"` | alle Monate seit Januar 1964 bis *t − 1* (mindestens 120) | "cumulative slopes" in Tabelle 3 |
+
+Im Code ist der Unterschied eine Zeile: Beim wachsenden Fenster beginnt die
+Schleife beim ersten Monat und jedes Modell prognostiziert alle späteren
+Monate.
+
+```python
+first_model = 0 if expanding else max(first - window, 0)
+...
+last_month = last if expanding else min(j + window, last)
+```
+
+Im ersten Prognosemonat (Januar 1974) sind beide gleich, weil es noch genau
+120 Monate Historie gibt; danach wächst das Fenster bis auf 600 Monate (2013).
+
+### 2h) Fama-MacBeth oder gestapelte Daten (`ESTIMATION`)
+
+| `ESTIMATION` | Training | Prognose | Vorbild |
+| --- | --- | --- | --- |
+| `"fama_macbeth"` (Standard) | **120 Modelle**, jedes auf **einem** Monat (~500 Zeilen) | Mittel der 120 Prognosen | Lewellen (2015) |
+| `"stacked"` | **ein Modell** auf allen 120 Monaten **untereinandergestapelt** (~60 000 Zeilen) | direkt die Prognose dieses Modells; neu trainiert alle `REFIT_EVERY = 12` Monate | Gu, Kelly & Xiu (2020); auch das MFD-Paper |
+
+Beide Verfahren nutzen dieselben Informationen (die 10 Jahre vor *t*). Der
+Unterschied: Beim Stapeln sieht **ein** Baum 60 000 Beobachtungen und kann
+feinere Muster lernen, die über die Jahre stabil sind; beim Fama-MacBeth-Weg
+lernt jeder Baum nur aus einem Monat, und erst das Mitteln glättet das
+Rauschen. Für OLS liefern beide fast dasselbe; für die Bäume können sie sich
+deutlich unterscheiden.
+
+```python
+for i, t in enumerate(refit_months, start=1):
+    # 1. Trainingsdaten: alle Zeilen der Monate im Fenster vor t
+    in_window = (month_nr >= (0 if expanding else t - window)) & (month_nr < t)
+    fitted = clone(model).fit(X[in_window], y[in_window])
+
+    # 2. Prognose für die Monate t ... t + refit_every - 1
+    in_forecast_months = (month_nr >= t) & (month_nr <= min(t + refit_every - 1, last))
+    forecast[..., in_forecast_months] = predict(fitted, X[in_forecast_months])
+```
+
+Das Modell, das ab Januar 1974 prognostiziert, ist auf Januar 1964 bis
+Dezember 1973 trainiert und wird für 12 Monate verwendet; dann rückt das
+Fenster um 12 Monate weiter. Auch hier gibt es keine Zukunftsdaten: Die
+jüngste Trainingszeile (Dezember 1973) enthält die Rendite im Januar 1974, die
+am Ende von Januar 1974 bekannt ist.
+
+### 2e) Investors: 100 simulierte Investoren
+
+Das fünfte Modell stammt aus Bali, Kelly, Mörke & Rahman (2026), "Machine
+Forecast Disagreement". Die Idee: Echte Investoren nutzen dieselben Daten,
+schauen aber auf unterschiedliche Kennzahlen und verarbeiten sie
+unterschiedlich – deshalb sind sie sich uneinig. Das Paper simuliert das mit
+vielen Machine-Learning-Modellen, die sich auf zwei Arten unterscheiden:
+
+1. **Information:** Jeder Investor sieht nur eine feste, zufällig gewählte
+   Hälfte der Kennzahlen (bei uns 7 von 14). Investor A schaut vielleicht auf
+   Momentum und Volatilität, Investor B auf B/M und Dividendenrendite.
+2. **Modell:** Jeder schätzt sein Modell auf einer eigenen Zufallsstichprobe
+   der Aktien (Bootstrap) – wie die Bäume eines Random Forest.
+
+In `models.py` ist jeder Investor **ein einzelner, gespeicherter
+Entscheidungsbaum** der Tiefe 3 (wie im Paper):
+
+```python
+# 1. Informationsmenge jedes Investors (bei gleichem random_state in jeder Schätzung dieselbe)
+self.features_ = [np.sort(rng.choice(n_features, n_seen, replace=False)) for _ in range(self.n_investors)]
+# 2. Jeder Investor schätzt seinen Baum auf einer eigenen Bootstrap-Stichprobe
+self.trees_ = []
+for k, cols in enumerate(self.features_):
+    rows = rng.integers(0, n_rows, n_rows)
+    tree = DecisionTreeRegressor(max_depth=self.max_depth, min_samples_leaf=self.min_samples_leaf,
+                                 random_state=k)
+    self.trees_.append(tree.fit(X[rows][:, cols], y[rows]))
+```
+
+Weil jeder Baum einzeln gespeichert ist, kann jeder Investor seine eigene
+Prognose abgeben (`predict_each`: eine Zeile pro Investor). Ihr Mittelwert ist
+die Prognose des Modells "Investors", die wie die anderen Modelle in den
+Schritten 3–7 ausgewertet wird; ihre Standardabweichung ist die
+Disagreement (Schritt 8). Die Informationsmenge jedes Investors bleibt über
+alle Schätzungen gleich – Investor 7 ist also in jedem Monat derselbe
+"Typ".
+
+Vereinfachung gegenüber dem Paper: Dort ist jeder Investor ein ganzer Random
+Forest mit 2 000 Bäumen auf 76 von 153 Kennzahlen. Wir haben nur 14 Kennzahlen
+und nutzen pro Investor einen Baum – das hält die Rechenzeit klein und jeder
+Baum ist direkt ein Investor.
+
+### 2f) Feature Importance
 
 Bäume berichten, wie stark jede Kennzahl den Prognosefehler beim Aufteilen
 gesenkt hat (`feature_importances_`). Wir mitteln das über alle Monatsmodelle;
@@ -687,6 +782,59 @@ trend = sm.OLS(y.to_numpy(), sm.add_constant(np.asarray(decades))).fit(**hac)
 Beide mit Newey-West-Standardfehlern (4 Lags), wie überall im Paper.
 **Ein negativer Wert mit |t| > 2 spricht für einen signifikanten Rückgang.**
 
+## Schritt 8: Machine Forecast Disagreement
+
+**Code:** Abschnitt 8 in `main.py`, Klasse `Investors` in `models.py`
+
+Bali, Kelly, Mörke & Rahman (2026) zeigen: Aktien, bei denen sich viele
+Prognosemodelle **uneinig** sind, haben im Folgemonat **niedrigere**
+Renditen. Ihre Erklärung folgt Miller (1977): Wenn Investoren uneinig sind
+und Leerverkäufe teuer, bestimmen die Optimisten den Preis – die Aktie ist
+überbewertet und fällt später.
+
+### Berechnung
+
+Für jede Aktie und jeden Monat geben die 100 Investoren aus 2e je eine
+Prognose ab. Die Disagreement ist deren Standardabweichung (Gleichung 4 im
+Paper):
+
+```
+MFD(i, t) = Standardabweichung über k = 1 … 100 von Prognose_k(i, t)
+```
+
+```python
+investor_forecasts = forecast[:, is_test_row]
+preds[name] = investor_forecasts.mean(axis=0)
+preds["MFD"] = investor_forecasts.std(axis=0)  # Standardabweichung über die 100 Investoren
+```
+
+Im Fama-MacBeth-Modus ist die Prognose von Investor *k* das Mittel seiner
+120 Monatsbäume; im gestapelten Modus die Prognose seines einen Baums.
+
+### Auswertung
+
+1. **Verteilung** der MFD im Querschnitt (Mittelwert, 10 %, Median, 90 %).
+2. **Dezilportfolios nach MFD** – genau wie Tabelle 6, nur nach der
+   Disagreement statt nach der Prognose sortiert. Low = Aktien, über die sich
+   die Investoren am meisten einig sind. Das Paper erwartet eine
+   **negative** H−L-Rendite (es berichtet Low minus High, also mit
+   umgekehrtem Vorzeichen).
+3. **Fama-MacBeth-Regression** der Renditen auf die MFD, allein und zusammen
+   mit der mittleren Prognose. Eine negative Steigung heißt: mehr Disagreement,
+   niedrigere Rendite – auch wenn man die erwartete Rendite berücksichtigt.
+
+```python
+mfd_tables["mfd_regressions"] = pd.concat({
+    "MFD only": util.fama_macbeth(preds, RET, ["MFD"])[0],
+    "MFD + forecast": util.fama_macbeth(preds, RET, ["MFD", "Investors"])[0],
+}, names=["regression", "variable"])
+```
+
+Unterschiede zum Paper: 14 statt 153 Kennzahlen, ein Baum statt ein Random
+Forest pro Investor, die 500 größten statt aller Aktien über 5 $. Das Paper
+kontrolliert außerdem für viele weitere Kennzahlen und berechnet
+Faktor-Alphas; hier ist nur die Grundfunktion umgesetzt.
+
 ---
 
 ## Ergebnisse
@@ -854,6 +1002,7 @@ sowie Lewellens Modell 1 und 2 im Vergleich (`FEATURE_SET`).
 | --- | --- | --- |
 | Monatliche Querschnittsregressionen der Renditen auf die Kennzahlen des Vormonats (Fama-MacBeth) | gleich | `util.fama_macbeth` |
 | Prognose = Kennzahlen zu Monatsbeginn × Mittel der Achsenabschnitte und Steigungen der **vorherigen 120 Monate** | gleich; für die Bäume: Mittel der Prognosen der 120 vorherigen Monatsmodelle (für OLS rechnerisch identisch, siehe 2b) | `models.fama_macbeth_forecast` |
+| Alternative: kumulierter Mittelwert seit 1964 ("cumulative") | `WINDOW_TYPE = "expanding"` | `models.fama_macbeth_forecast` |
 | Erste Regressionen 1964, erste Prognose 1974 | gleich (Daten ab Januar 1964, erster Prognosemonat Januar 1974 mit vollen 120 Monaten Historie) | `TEST_START` |
 | Tabelle 2: mittlere Steigungen, t-Statistik mit Newey-West (4 Lags) | gleich | Abschnitt 3 in `main.py` |
 | Tabelle 3: Verteilung der Prognosen (Avg, Std, p10, p90 im Querschnitt, über die Monate gemittelt) und Out-of-Sample-FM-Regression der Renditen auf die Prognose (Slope, S.E., t, R²) | gleich | `util.forecast_evaluation` |
@@ -871,7 +1020,7 @@ sowie Lewellens Modell 1 und 2 im Vergleich (`FEATURE_SET`).
 | Rendite | Rendite | Überrendite über den risikofreien Zins (verschiebt nur das Niveau, nicht die Querschnittsunterschiede) |
 | Modell 3 | 15 Variablen | 14 Variablen (eine Emissionsvariable statt zwei) |
 | Zeitraum | Schätzung ab 1964, Prognosen 1974–2013 | gleich (einstellbar bis 2024) |
-| Weitere Varianten im Paper | kumulierter Mittelwert seit 1964, Fenster von 1, 3, 5 Jahren | nur das 10-Jahres-Fenster (Hauptergebnis des Papers); kürzere Fenster über `TRAIN_WINDOW` |
+| Weitere Varianten im Paper | Fenster von 1, 3, 5 Jahren | über `TRAIN_WINDOW` (12, 36, 60) |
 
 ---
 
@@ -883,9 +1032,12 @@ Alle wichtigen Einstellungen stehen oben in `main.py`:
 | --- | --- | --- |
 | `FEATURE_SET` | `"Model 3"` | Lewellens Modell 1, 2 oder 3 |
 | `UNIVERSE_SIZE` | `500` | Anzahl der größten Aktien pro Monat (max. 1000) |
+| `ESTIMATION` | `"fama_macbeth"` | `"fama_macbeth"` (Mittel der Monatsmodelle, wie Lewellen) oder `"stacked"` (ein Modell auf gestapelten Daten, wie Gu, Kelly & Xiu), siehe 2h |
+| `WINDOW_TYPE` | `"rolling"` | `"rolling"` (letzte 10 Jahre) oder `"expanding"` (alle Jahre seit 1964), siehe 2g |
 | `TRAIN_WINDOW` | `120` | Fensterlänge in Monaten (zugleich die Mindesthistorie vor der ersten Prognose) |
+| `REFIT_EVERY` | `12` | nur `"stacked"`: alle wie viele Monate neu trainiert wird |
 | `TEST_START`, `TEST_END` | 1974–2013 | Prognosezeitraum (`TEST_END = None`: bis 2024) |
-| `MODELS_TO_RUN` | alle vier | Liste der Modelle |
+| `MODELS_TO_RUN` | alle fünf | Liste der Modelle; ohne `"Investors"` entfällt Schritt 8 |
 | `LONG_PCT` | `0.20` | Strategie aus Schritt 6 |
 | `ROLLING_MONTHS` | `12` | gleitender Mittelwert in Schritt 7 (die 120-Monats-Grafik entsteht immer) |
 
@@ -909,7 +1061,9 @@ entstanden).
 | `time_variation_monthly.csv` | Schritt 7: die drei Kennzahlen pro Monat und Modell |
 | `time_variation_trends.csv` | Schritt 7: Hälftenvergleich und Trendtest |
 | `time_variation_12m.png`, `time_variation_120m.png` | Schritt 7: gleitende Mittelwerte |
+| `mfd_sorted_portfolios.csv`, `mfd_regressions.csv` | Schritt 8: Dezile nach Disagreement und Regressionen |
 | `test_until_2024/` | dieselben Dateien für den Lauf mit Prognosen bis 2024 |
+| `stacked/` | dieselben Dateien für `ESTIMATION = "stacked"` (1974–2013) |
 
 ---
 
@@ -932,5 +1086,6 @@ entstanden).
 
 - Lewellen, J. (2015): The Cross-Section of Expected Stock Returns. *Critical Finance Review* 4, 1–44.
 - Gu, S., Kelly, B., Xiu, D. (2020): Empirical Asset Pricing via Machine Learning. *Review of Financial Studies* 33, 2223–2273.
+- Bali, T. G., Kelly, B. T., Mörke, M., Rahman, J. (2026): Machine Forecast Disagreement. *Review of Financial Studies*, Advance Access. https://doi.org/10.1093/rfs/hhag042 (nicht im Repository, da urheberrechtlich geschützt; über die Universitätsbibliothek abrufbar)
 - McLean, R. D., Pontiff, J. (2016): Does Academic Research Destroy Stock Return Predictability? *Journal of Finance* 71, 5–32.
 - Jensen, T. I., Kelly, B., Pedersen, L. H. (2023): Is There a Replication Crisis in Finance? *Journal of Finance* 78, 2465–2518.

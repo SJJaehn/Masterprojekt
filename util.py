@@ -291,7 +291,7 @@ def print_table(table, decimals=2):
     print(table.to_string(float_format=lambda x: f"{x:.{decimals}f}"))
 
 
-COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]  # ein Farbton pro Modell
+COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#6250d6"]  # ein Farbton pro Modell
 BENCHMARK_COLOR = "#52514e"
 
 

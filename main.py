@@ -13,6 +13,9 @@ von oben nach unten durch:
     5. Nach der Prognose sortierte Dezilportfolios (Tabelle 6)
     6. Handelsstrategie (Long Top 20 %) im Vergleich zu Equal Weight
     7. Entwicklung über die Zeit (Abschnitt 3.6, Fig. 2) mit Test auf einen Rückgang
+    8. Machine Forecast Disagreement (Bali, Kelly, Mörke & Rahman, 2026): wie
+       stark sich 100 simulierte Investoren über eine Aktie uneinig sind, und
+       ob das die Renditen vorhersagt
 Ergebnisse (CSV-Dateien und Grafiken) landen im Ordner output/.
 
 models.py enthält die Modelle und das Schätzverfahren, util.py die Rechenbausteine.
@@ -34,10 +37,16 @@ from util import DATE, ID, RET, SIZE  # Spaltennamen: Monatsende, Aktie, Rendite
 FEATURE_SET = "Model 3"      # Prädiktoren nach Lewellen (2015): "Model 1" (Größe, B/M, Momentum),
                              # "Model 2" (+ Emissionen, Accruals, Profitabilität, Asset Growth), "Model 3" (alle 14)
 UNIVERSE_SIZE = 500          # pro Monat nur die 500 größten Aktien (max. 1000)
-TRAIN_WINDOW = 120           # Prognose = Mittel der Monatsmodelle der letzten 120 Monate (Paper: 10 Jahre)
+ESTIMATION = "fama_macbeth"  # "fama_macbeth": ein Modell pro Monat, Prognose = Mittel der Monatsmodelle (Lewellen)
+                             # "stacked": ein Modell auf allen gestapelten Monaten des Fensters (Gu, Kelly & Xiu)
+WINDOW_TYPE = "rolling"      # "rolling": die letzten TRAIN_WINDOW Monate (Paper: Hauptergebnis)
+                             # "expanding": alle Monate seit 1964 (Paper: "cumulative")
+TRAIN_WINDOW = 120           # Fensterlänge in Monaten (Paper: 10 Jahre); bei "expanding" die Mindestlänge
+REFIT_EVERY = 12             # nur "stacked": Modell alle 12 Monate neu trainieren (wie Gu, Kelly & Xiu)
 TEST_START = "1974-01-01"    # erster Prognosemonat (Paper: 1974)
 TEST_END = "2013-12-31"      # letzter Prognosemonat (Paper: 2013; None: bis zum Ende der Daten, 2024)
-MODELS_TO_RUN = ["OLS", "DecisionTree", "RandomForest", "XGBoost"]
+MODELS_TO_RUN = ["OLS", "DecisionTree", "RandomForest", "XGBoost", "Investors"]
+                             # "Investors": 100 simulierte Investoren, liefert die Disagreement für Schritt 8
 LONG_PCT = 0.20              # Strategie: Kauf der besten 20 % der Aktien nach prognostizierter Rendite
 ROLLING_MONTHS = 12          # Schritt 7: gleitender Mittelwert (zusätzlich immer 120 Monate wie in Fig. 2)
 
@@ -72,9 +81,14 @@ print(f"  {len(df):,} rows | {df[ID].nunique():,} stocks | {df[DATE].nunique()} 
 
 
 # =============================================================================
-# 2. Schätzung: ein Modell pro Monat, Prognose = Mittel der letzten 120 Monatsmodelle
+# 2. Schätzung: Fama-MacBeth (Mittel der Monatsmodelle) oder gestapelt (ein Modell auf dem ganzen Fenster)
 # =============================================================================
-util.print_section(f"2. Estimation: one model per month, forecasts averaged over {TRAIN_WINDOW} months")
+window_label = f"{TRAIN_WINDOW}-month rolling window" if WINDOW_TYPE == "rolling" else "expanding window"
+if ESTIMATION == "fama_macbeth":
+    method_label = f"Fama-MacBeth: one model per month, forecasts averaged over a {window_label}"
+else:
+    method_label = f"stacked: one model on a {window_label}, refit every {REFIT_EVERY} months"
+util.print_section(f"2. Estimation ({method_label})")
 
 # Monate durchnummerieren (0 = Januar 1964) und Nummer des ersten und letzten Prognosemonats bestimmen.
 # Vor der ersten Prognose müssen TRAIN_WINDOW Monate liegen.
@@ -89,18 +103,26 @@ y = df[RET].to_numpy(dtype=float)       # Rendite im Monat t + 1
 # Ergebnistabelle: eine Zeile pro Prognosemonat und Aktie, eine Prognosespalte pro Modell
 is_test_row = (month_nr >= first) & (month_nr <= last)
 preds = df.loc[is_test_row, [DATE, ID, SIZE, RET]].reset_index(drop=True)
+estimate = models.fama_macbeth_forecast if ESTIMATION == "fama_macbeth" else models.stacked_forecast
+options = {"refit_every": REFIT_EVERY} if ESTIMATION == "stacked" else {}
 importances = {}
 for name in MODELS_TO_RUN:
-    forecast, model_importances = models.fama_macbeth_forecast(
-        models.MODELS[name], X, y, month_nr, first, last, TRAIN_WINDOW, name)
-    preds[name] = forecast[is_test_row]
-    if model_importances:  # OLS hat keine Feature Importances
+    forecast, model_importances = estimate(models.MODELS[name], X, y, month_nr, first, last, TRAIN_WINDOW,
+                                           expanding=WINDOW_TYPE == "expanding", label=name, **options)
+    if name == "Investors":
+        # eine Prognose pro Investor: deren Mittel ist die Prognose, deren Streuung die Disagreement
+        investor_forecasts = forecast[:, is_test_row]
+        preds[name] = investor_forecasts.mean(axis=0)
+        preds["MFD"] = investor_forecasts.std(axis=0)  # Standardabweichung über die 100 Investoren
+    else:
+        preds[name] = forecast[is_test_row]
+    if model_importances:  # OLS und Investors haben keine Feature Importances
         importances[name] = np.mean(model_importances, axis=0)
 importances = pd.DataFrame(importances, index=features)
 
 print(f"  Forecasts: {preds[DATE].min():%Y-%m} - {preds[DATE].max():%Y-%m} | {preds[DATE].nunique()} months | "
       f"{preds.groupby(DATE).size().mean():.0f} stocks per month")
-print("\n  Top 10 features (mean importance over all monthly models):")
+print("\n  Top 10 features (mean importance over all estimated models):")
 util.print_table(importances.loc[importances.mean(axis=1).nlargest(10).index], decimals=4)
 
 
@@ -189,6 +211,34 @@ print(f"  2nd half from {split_date:%Y-%m} | Difference: 2nd minus 1st half | Tr
 
 
 # =============================================================================
+# 8. Machine Forecast Disagreement (Bali, Kelly, Mörke & Rahman, 2026)
+# =============================================================================
+mfd_tables = {}
+if "MFD" in preds:
+    util.print_section("8. Machine forecast disagreement (MFD)")
+
+    # Verteilung der MFD im Querschnitt, über die Monate gemittelt (in % pro Monat)
+    mfd_distribution = preds.groupby(DATE)["MFD"].describe(percentiles=[0.1, 0.5, 0.9]).mean() * 100
+    print(f"  MFD in % per month: mean {mfd_distribution['mean']:.3f} | p10 {mfd_distribution['10%']:.3f} | "
+          f"median {mfd_distribution['50%']:.3f} | p90 {mfd_distribution['90%']:.3f}")
+
+    # Dezilportfolios nach MFD: Low = Aktien, über die sich die Investoren am meisten einig sind.
+    # Das Paper findet: hohe Disagreement -> niedrige Rendite, also H-L < 0 (Paper: Low minus High > 0).
+    mfd_tables["mfd_sorted_portfolios"] = util.sorted_portfolios(preds, "MFD")
+    print("\n  Deciles sorted by MFD (Pred = mean MFD in %):")
+    util.print_table(mfd_tables["mfd_sorted_portfolios"])
+
+    # Fama-MacBeth-Regression der Renditen auf die MFD, allein und zusammen mit der mittleren Prognose
+    mfd_tables["mfd_regressions"] = pd.concat({
+        "MFD only": util.fama_macbeth(preds, RET, ["MFD"])[0],
+        "MFD + forecast": util.fama_macbeth(preds, RET, ["MFD", "Investors"])[0],
+    }, names=["regression", "variable"])
+    print("\n  Fama-MacBeth regressions of returns on MFD (Newey-West t-stats):")
+    util.print_table(mfd_tables["mfd_regressions"], decimals=3)
+    print("  A negative MFD slope means: the more the investors disagree, the lower the next-month return")
+
+
+# =============================================================================
 # Ergebnisse speichern
 # =============================================================================
 results = {
@@ -204,11 +254,12 @@ results = {
     "performance.csv": performance,
     "time_variation_monthly.csv": pd.concat(series, axis=1),
     "time_variation_trends.csv": trends,
+    **{f"{name}.csv": table for name, table in mfd_tables.items()},
 }
 for filename, table in results.items():
     table.to_csv(os.path.join(OUTPUT_DIR, filename))
 
-period = f"{preds[DATE].min():%Y} - {preds[DATE].max():%Y}, top {UNIVERSE_SIZE} stocks"
+period = f"{preds[DATE].min():%Y} - {preds[DATE].max():%Y}, top {UNIVERSE_SIZE} stocks, {ESTIMATION}, {WINDOW_TYPE}"
 util.plot_performance(strategy, f"Long top {LONG_PCT:.0%} by predicted return vs. equal weight ({period})",
                       os.path.join(OUTPUT_DIR, "performance.png"))
 for window in [ROLLING_MONTHS, 120]:
