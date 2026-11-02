@@ -929,62 +929,67 @@ gedacht.
 
 | Modell | Std der Prognosen (%) | Steigung | t-Stat | IC mean | IC t-Stat |
 | --- | --- | --- | --- | --- | --- |
-| OLS | 0,41 | 0,42 | 2,28 | 0,027 | 3,83 |
-| Decision Tree | 0,36 | 0,31 | 1,72 | 0,016 | 2,62 |
-| Random Forest | 0,15 | 0,59 | 1,20 | 0,014 | 2,09 |
-| XGBoost | 0,45 | 0,37 | 2,63 | 0,022 | 3,71 |
+| OLS | 0,41 | 0,40 | 2,26 | 0,025 | 3,66 |
+| Decision Tree | 0,37 | 0,30 | 1,60 | 0,015 | 2,45 |
+| Random Forest | 0,16 | 0,54 | 1,13 | 0,013 | 1,83 |
+| XGBoost | 0,46 | 0,40 | 2,80 | 0,022 | 3,80 |
+| Investors | 0,20 | 0,48 | 1,29 | 0,014 | 1,96 |
 
 **Tabelle 6 – Dezilportfolios, gleichgewichtet (realisierte Rendite in % pro Monat)**
 
 | Modell | Low | High | H−L | t-Stat H−L |
 | --- | --- | --- | --- | --- |
-| OLS | 0,32 | 1,03 | 0,71 | 2,56 |
-| Decision Tree | 0,51 | 0,90 | 0,39 | 1,49 |
-| Random Forest | 0,52 | 0,89 | 0,37 | 1,22 |
-| XGBoost | 0,41 | 1,00 | 0,58 | 2,27 |
+| OLS | 0,33 | 1,02 | 0,70 | 2,58 |
+| Decision Tree | 0,45 | 0,90 | 0,45 | 1,74 |
+| Random Forest | 0,55 | 0,87 | 0,32 | 1,08 |
+| XGBoost | 0,37 | 0,99 | 0,62 | 2,36 |
+| Investors | 0,50 | 0,84 | 0,34 | 1,16 |
 
 **Handelsstrategien – Long Top 10 %, Short Bottom 10 %, Long-Short**
 
 | Modell | Long: Rendite p. a. / Sharpe | Short: Rendite p. a. | Long-Short: Rendite p. a. / Sharpe | Long-Seite (t) | Short-Seite (t) |
 | --- | --- | --- | --- | --- | --- |
-| OLS | 10,84 % / 0,62 | −6,11 % | 6,73 % / 0,43 | 0,35 % (2,10) | 0,36 % (2,58) |
-| Decision Tree | 8,81 % / 0,50 | −7,93 % | 2,96 % / 0,25 | 0,21 % (1,17) | 0,18 % (1,63) |
-| Random Forest | 8,74 % / 0,50 | −8,20 % | 2,33 % / 0,21 | 0,20 % (1,03) | 0,16 % (1,22) |
-| XGBoost | 10,02 % / 0,55 | −7,24 % | 5,47 % / 0,38 | 0,31 % (1,73) | 0,27 % (2,08) |
-| Investors | 8,52 % / 0,49 | −8,38 % | 2,16 % / 0,21 | 0,20 % (0,95) | 0,16 % (1,22) |
-| Equal Weight | 7,06 % / 0,50 | | | | |
+| OLS | 10,79 % / 0,62 | −5,96 % | 6,79 % / 0,44 | 0,32 % (2,02) | 0,37 % (2,81) |
+| Decision Tree | 8,98 % / 0,52 | −7,48 % | 3,68 % / 0,29 | 0,20 % (1,14) | 0,25 % (2,07) |
+| Random Forest | 8,52 % / 0,50 | −8,38 % | 1,81 % / 0,19 | 0,17 % (0,85) | 0,15 % (1,19) |
+| XGBoost | 9,98 % / 0,55 | −6,84 % | 5,85 % / 0,40 | 0,29 % (1,64) | 0,33 % (2,38) |
+| Investors | 8,06 % / 0,47 | −8,14 % | 2,03 % / 0,20 | 0,14 % (0,69) | 0,20 % (1,48) |
+| Equal Weight | 7,23 % / 0,51 | | | | |
 
 Long-Seite = Rendite der gekauften 10 % minus Equal Weight, Short-Seite =
 Equal Weight minus Rendite der leerverkauften 10 %, beide in % pro Monat mit
 Newey-West-t-Statistik. Zusammen ergeben sie die H−L-Rendite aus Tabelle 6
-(z. B. OLS: 0,35 + 0,36 = 0,71).
+(z. B. OLS: 0,32 + 0,37 ≈ 0,70).
 
 Beobachtungen, die sich direkt aus den Zahlen ablesen lassen:
 
-- Alle vier Modelle haben einen positiven, signifikanten IC: Sie sortieren
-  die Aktien besser als der Zufall.
-- In dieser Einstellung liefert **OLS** die höchste H−L-Rendite, den höchsten
-  IC und die besten Strategien; **XGBoost** kommt am nächsten heran.
+- Alle Modelle haben einen positiven IC: Sie sortieren die Aktien besser als
+  der Zufall. Signifikant (t > 2) ist er für OLS, Decision Tree und XGBoost;
+  Random Forest und Investors liegen knapp darunter.
+- In dieser Einstellung liefert **OLS** die höchste H−L-Rendite und die
+  besten Strategien; **XGBoost** kommt am nächsten heran und hat die
+  höchste t-Statistik der Steigung und des IC.
 - **Long- und Short-Seite tragen etwa gleich viel bei.** Die Short-Strategie
   allein verliert trotzdem deutlich Geld (−6 bis −8 % p. a., Max Drawdown
   über −95 %). Das ist kein Fehler, sondern zu erwarten: Bei OLS bringen die
-  leerverkauften Aktien im Schnitt +0,32 % pro Monat – weniger als der Markt
-  (+0,69 %), aber eben positiv. Wer sie leerverkauft, verliert diese
-  0,32 % pro Monat (−3,9 % p. a.). Dazu kommt der Volatilitätsabschlag
-  (Volatilität 22 %, geometrisch etwa −σ²/2 ≈ −2,4 Prozentpunkte p. a.), und
-  der Markt hat sich 1974–2013 verfünfzehnfacht. Eine reine Short-Position
+  leerverkauften Aktien im Schnitt +0,33 % pro Monat – weniger als der Markt
+  (+0,70 %), aber eben positiv. Wer sie leerverkauft, verliert diese
+  0,33 % pro Monat (−3,9 % p. a.). Dazu kommt der Volatilitätsabschlag
+  (Volatilität 21 %, geometrisch etwa −σ²/2 ≈ −2,2 Prozentpunkte p. a.), und
+  der Markt hat sich 1974–2013 versechzehnfacht. Eine reine Short-Position
   auf Aktien verliert also langfristig fast immer; ihr Wert liegt im
   Long-Short-Portfolio, wo sie den Markt absichert. Gemessen am Markt
   funktioniert die Short-Seite: Die leerverkauften Aktien sind im Schnitt
-  0,36 % pro Monat schlechter als Equal Weight (t = 2,58).
-- Der **Random Forest** prognostiziert sehr vorsichtig (Streuung 0,15 % statt
+  0,37 % pro Monat schlechter als Equal Weight (t = 2,81).
+- Der **Random Forest** prognostiziert sehr vorsichtig (Streuung 0,16 % statt
   0,41 %): Das Mitteln über 200 Bäume *und* über 120 Monatsmodelle glättet
   die Prognosen stark. Die Steigung ist deshalb nahe an der Idealrichtung,
-  aber unpräzise geschätzt (t = 1,20).
+  aber unpräzise geschätzt (t = 1,13).
 - Die wichtigsten Kennzahlen für die Bäume sind Volatilität, Beta und
   Momentum (`feature_importance.csv`).
-- Die OLS-Steigung von 0,42 liegt am unteren Rand von Lewellens Werten für
-  große Aktien (0,44–0,72, Tabelle 3, Panel C).
+- Die OLS-Steigung von 0,40 liegt knapp unter Lewellens Werten für große
+  Aktien (0,44–0,72, Tabelle 3, Panel C). Mit Lewellens Abgrenzung der
+  großen Aktien ist sie 0,48 (siehe unten, "large stocks").
 
 **Wertentwicklung** (`output/single/predicted_return/`)
 
@@ -996,22 +1001,22 @@ Beobachtungen, die sich direkt aus den Zahlen ablesen lassen:
 
 | Reihe | Modell | Mittel 1974–93 | Mittel 1994–2013 | Differenz (t) | Trend pro 10 J. (t) |
 | --- | --- | --- | --- | --- | --- |
-| Prognose-Steigung | OLS | 0,53 | 0,31 | −0,21 (−0,57) | −0,23 (−1,48) |
-| | Decision Tree | 0,48 | 0,15 | −0,33 (−0,92) | −0,28 (−2,18) |
-| | Random Forest | 1,14 | 0,04 | −1,09 (−1,12) | −0,86 (−2,33) |
-| | XGBoost | 0,55 | 0,19 | −0,36 (−1,27) | −0,26 (−2,44) |
-| H−L-Rendite EW (%) | OLS | 1,02 | 0,40 | −0,61 (−1,12) | −0,46 (−2,09) |
-| | Decision Tree | 0,65 | 0,14 | −0,50 (−0,96) | −0,36 (−1,95) |
-| | Random Forest | 0,80 | −0,06 | −0,86 (−1,45) | −0,54 (−2,57) |
-| | XGBoost | 0,95 | 0,21 | −0,74 (−1,46) | −0,45 (−2,37) |
-| Long-Seite (%) | OLS | 0,41 | 0,28 | −0,13 (−0,37) | −0,16 (−1,44) |
-| | Decision Tree | 0,22 | 0,20 | −0,02 (−0,05) | −0,09 (−0,77) |
-| | Random Forest | 0,36 | 0,05 | −0,31 (−0,79) | −0,22 (−1,77) |
-| | XGBoost | 0,42 | 0,20 | −0,22 (−0,60) | −0,18 (−1,60) |
-| Short-Seite (%) | OLS | 0,61 | 0,12 | −0,49 (−1,78) | −0,30 (−2,27) |
-| | Decision Tree | 0,42 | −0,06 | −0,48 (−2,24) | −0,27 (−2,83) |
-| | Random Forest | 0,44 | −0,11 | −0,55 (−2,09) | −0,32 (−2,84) |
-| | XGBoost | 0,53 | 0,01 | −0,52 (−2,04) | −0,27 (−2,25) |
+| Prognose-Steigung | OLS | 0,49 | 0,32 | −0,16 (−0,46) | −0,24 (−1,74) |
+| | Decision Tree | 0,49 | 0,11 | −0,38 (−1,03) | −0,29 (−2,24) |
+| | Random Forest | 0,97 | 0,12 | −0,85 (−0,88) | −0,87 (−2,50) |
+| | XGBoost | 0,53 | 0,26 | −0,26 (−0,93) | −0,23 (−2,23) |
+| H−L-Rendite EW (%) | OLS | 0,96 | 0,43 | −0,52 (−0,98) | −0,47 (−2,44) |
+| | Decision Tree | 0,77 | 0,13 | −0,64 (−1,24) | −0,43 (−2,39) |
+| | Random Forest | 0,63 | 0,01 | −0,61 (−1,04) | −0,53 (−2,57) |
+| | XGBoost | 0,98 | 0,26 | −0,71 (−1,37) | −0,48 (−2,46) |
+| Long-Seite (%) | OLS | 0,37 | 0,27 | −0,11 (−0,33) | −0,16 (−1,60) |
+| | Decision Tree | 0,29 | 0,11 | −0,18 (−0,50) | −0,15 (−1,37) |
+| | Random Forest | 0,30 | 0,04 | −0,26 (−0,66) | −0,24 (−2,02) |
+| | XGBoost | 0,41 | 0,17 | −0,24 (−0,66) | −0,20 (−1,81) |
+| Short-Seite (%) | OLS | 0,58 | 0,17 | −0,42 (−1,59) | −0,31 (−2,75) |
+| | Decision Tree | 0,48 | 0,02 | −0,46 (−1,97) | −0,28 (−2,79) |
+| | Random Forest | 0,33 | −0,02 | −0,35 (−1,39) | −0,29 (−2,63) |
+| | XGBoost | 0,57 | 0,09 | −0,48 (−1,75) | −0,28 (−2,24) |
 
 ![Gleitender 10-Jahres-Mittelwert wie Lewellens Fig. 2](output/single/predicted_return/time_variation_120m.png)
 
@@ -1021,16 +1026,17 @@ Was die Zahlen zeigen:
 
 - **Alle Vorzeichen sind negativ:** Bei allen Modellen und allen vier
   Kennzahlen ist die Prognosegüte 1994–2013 kleiner als 1974–1993.
-- **Der Rückgang kommt vor allem von der Short-Seite.** Ihr Trend ist bei
-  allen Modellen signifikant negativ (t zwischen −2,25 und −2,84), und
-  1994–2013 sind die leerverkauften Aktien kaum noch schlechter als der Markt.
-  Die Long-Seite geht zwar auch zurück, aber nirgends signifikant.
+- **Der Trend der H−L-Rendite ist bei allen Modellen signifikant negativ**
+  (t zwischen −2,39 und −2,57), ebenso der der Short-Seite (t zwischen
+  −2,24 und −2,79). 1994–2013 sind die leerverkauften Aktien kaum noch
+  schlechter als der Markt. Die Long-Seite geht auch zurück, signifikant
+  aber nur beim Random Forest (t = −2,02).
 - **Der Rückgang ist kein gleichmäßiger Abwärtstrend.** In der
   10-Jahres-Grafik sind die Kennzahlen bis etwa 2008 recht stabil (mit
   einem Tief Mitte der 1990er und einem Hoch um 2000) und brechen dann ein.
   In den letzten 10 Jahren (2004–2013) liegt die mittlere Steigung bei
-  −0,05 (OLS) bis −1,13 (Random Forest), die H−L-Rendite bei +0,07 % (OLS)
-  bis −0,51 % (XGBoost) pro Monat.
+  −0,15 (OLS) bis −1,52 (Random Forest), die H−L-Rendite bei −0,06 % (OLS)
+  bis −0,66 % (Random Forest) pro Monat.
 - Das deckt sich mit Lewellen (Abschnitt 3.6): stabile Prognosekraft bis
   2008, dann ein Einbruch, besonders bei großen Aktien (dort mittlere
   Steigung −0,37 in den letzten 10 Jahren). Er nennt als einen Grund die
@@ -1055,40 +1061,43 @@ das Paper nicht kennt. Mittelwerte pro Monat in % mit Newey-West-t-Statistik:
 
 | Modell | Prognose-Steigung (t) | H−L EW (t) | Long-Seite (t) | Short-Seite (t) |
 | --- | --- | --- | --- | --- |
-| OLS | 0,24 (0,41) | −0,04 (−0,07) | 0,03 (0,11) | −0,07 (−0,22) |
-| Decision Tree | 0,13 (0,36) | 0,10 (0,25) | 0,09 (0,40) | 0,01 (0,05) |
-| Random Forest | 0,16 (0,12) | −0,16 (−0,29) | −0,04 (−0,13) | −0,12 (−0,40) |
-| XGBoost | −0,02 (−0,04) | −0,10 (−0,21) | −0,04 (−0,17) | −0,06 (−0,21) |
-| Investors | 0,19 (0,19) | −0,03 (−0,06) | −0,08 (−0,29) | 0,05 (0,14) |
+| OLS | 0,03 (0,05) | −0,28 (−0,50) | −0,05 (−0,18) | −0,22 (−0,77) |
+| Decision Tree | 0,03 (0,07) | −0,03 (−0,08) | 0,01 (0,07) | −0,04 (−0,21) |
+| Random Forest | −0,39 (−0,27) | −0,27 (−0,54) | −0,15 (−0,54) | −0,12 (−0,47) |
+| XGBoost | −0,04 (−0,12) | −0,24 (−0,59) | −0,03 (−0,13) | −0,21 (−0,91) |
+| Investors | −0,25 (−0,24) | −0,29 (−0,60) | −0,07 (−0,27) | −0,22 (−0,82) |
 
-Zum Vergleich 1974–2013: H−L-Rendite 0,36–0,71 %, Long-Seite 0,20–0,35 %,
-Short-Seite 0,16–0,36 % pro Monat.
+Zum Vergleich 1974–2013: H−L-Rendite 0,32–0,70 %, Long-Seite 0,14–0,32 %,
+Short-Seite 0,15–0,37 % pro Monat.
 
 Strategien nur 2014–2024:
 
 | Modell | Long: Rendite p. a. / Sharpe | Long-Short: Rendite p. a. / Sharpe |
 | --- | --- | --- |
-| OLS | 9,74 % / 0,61 | −2,39 % / −0,02 |
-| Decision Tree | 10,56 % / 0,67 | −0,13 % / 0,07 |
-| Random Forest | 8,70 % / 0,54 | −3,66 % / −0,10 |
-| XGBoost | 8,55 % / 0,53 | −2,67 % / −0,07 |
-| Investors | 8,12 % / 0,51 | −2,24 % / −0,02 |
-| Equal Weight | 9,66 % / 0,66 | |
+| OLS | 9,03 % / 0,58 | −5,16 % / −0,17 |
+| Decision Tree | 9,97 % / 0,63 | −1,45 % / −0,02 |
+| Random Forest | 7,42 % / 0,47 | −4,98 % / −0,17 |
+| XGBoost | 9,00 % / 0,54 | −3,99 % / −0,20 |
+| Investors | 8,47 % / 0,52 | −5,16 % / −0,19 |
+| Equal Weight | 10,05 % / 0,68 | |
 
 ![Gleitender 10-Jahres-Mittelwert bis 2024](output/single_until_2024/predicted_return/time_variation_120m.png)
 
 Was die Zahlen zeigen:
 
 - **2014–2024 ist bei keinem Modell ein Vorteil erkennbar**, weder auf der
-  Long- noch auf der Short-Seite. Alle Mittelwerte liegen nahe null, alle
-  t-Statistiken betragsmäßig unter 0,5. Die Long-Short-Strategien verlieren
-  leicht; Long liegt bei der Sharpe Ratio unter Equal Weight (0,66), nur der
-  Decision Tree ist mit 0,67 gleichauf.
+  Long- noch auf der Short-Seite. Fast alle Mittelwerte sind leicht negativ,
+  alle t-Statistiken betragsmäßig unter 1. Alle Long-Short-Strategien
+  verlieren Geld, und jede Long-Strategie liegt bei Rendite und Sharpe Ratio
+  unter Equal Weight (10,05 % / 0,68); am nächsten kommt der Decision Tree.
 - Der Einbruch von 2008/09 hat sich also **nicht erholt**: Die gleitenden
-  10-Jahres-Mittelwerte bleiben bis 2024 um null (kurz positiv um 2020/21).
+  10-Jahres-Mittelwerte der H−L-Rendite bleiben bis 2024 überwiegend
+  negativ, nur um 2019/20 kurz um null.
 - Über den ganzen Zeitraum 1974–2024 ist der Rückgang deutlicher als bis
   2013: Der Trend der H−L-Rendite ist für alle Modelle negativ mit t zwischen
-  −1,97 und −2,71, der der Short-Seite mit t zwischen −2,15 und −2,65
+  −2,61 und −3,28, der der Short-Seite mit t zwischen −2,43 und −3,37; jetzt
+  ist auch die Long-Seite bei allen Modellen außer dem Decision Tree
+  signifikant rückläufig
   (`output/single_until_2024/predicted_return/time_variation_trends.csv`).
 
 Einordnung: Gemessen wird die Überrendite gegenüber dem gleichgewichteten
@@ -1107,24 +1116,64 @@ Ergebnisse liegen in `output/stacked/`.
 
 | Modell | Steigung Tab. 3 (t) – single | Steigung Tab. 3 (t) – stacked | H−L EW in % (t) – single | H−L EW in % (t) – stacked |
 | --- | --- | --- | --- | --- |
-| OLS | 0,42 (2,28) | 0,36 (2,74) | 0,71 (2,56) | 0,64 (2,38) |
-| Decision Tree | 0,31 (1,72) | 0,10 (1,61) | 0,39 (1,49) | 0,22 (1,17) |
-| Random Forest | 0,59 (1,20) | 0,54 (3,85) | 0,37 (1,22) | 0,74 (2,99) |
-| XGBoost | 0,37 (2,63) | 0,24 (3,67) | 0,58 (2,27) | 0,70 (3,07) |
-| Investors | 0,46 (1,21) | 0,77 (3,30) | 0,36 (1,18) | 0,61 (2,47) |
+| OLS | 0,40 (2,26) | 0,35 (2,30) | 0,70 (2,58) | 0,54 (2,08) |
+| Decision Tree | 0,30 (1,60) | 0,11 (1,66) | 0,45 (1,74) | 0,21 (0,97) |
+| Random Forest | 0,54 (1,13) | 0,56 (3,24) | 0,32 (1,08) | 0,80 (3,12) |
+| XGBoost | 0,40 (2,80) | 0,20 (2,73) | 0,62 (2,36) | 0,58 (2,45) |
+| Investors | 0,48 (1,29) | 0,73 (2,54) | 0,34 (1,16) | 0,59 (2,33) |
 
-- **Random Forest und XGBoost profitieren deutlich vom Stapeln:** Ihre
-  H−L-Renditen sind höher als die von OLS, mit t-Statistiken um 3. Ein Baum
-  auf 60 000 Beobachtungen findet stabilere Muster als 120 Bäume auf je 500.
-  Long-Short bringt 7,3 % (Random Forest) und 7,0 % p. a. (XGBoost) bei einer
-  Sharpe Ratio von 0,47, gegenüber 6,1 % / 0,41 für OLS.
-- Beide Seiten tragen bei: Long-Seite 0,36 % (t 2,13 bzw. 2,03), Short-Seite
-  0,37 % bzw. 0,34 % pro Monat (t 2,54 bzw. 2,73).
+- **Der Random Forest profitiert am stärksten vom Stapeln:** Seine
+  H−L-Rendite steigt von 0,32 % auf 0,80 % pro Monat (t = 3,12) – der
+  höchste Wert aller Läufe mit den 500 größten Aktien. Ein Modell auf
+  60 000 Beobachtungen findet stabilere Muster als 120 Modelle auf je 500.
+  Long-Short bringt 8,2 % p. a. bei einer Sharpe Ratio von 0,51, gegenüber
+  5,0 % / 0,36 für OLS gestapelt und 6,8 % / 0,44 für OLS im Modus `single`.
+- Beide Seiten tragen beim Random Forest bei: Long-Seite 0,46 % (t = 2,82),
+  Short-Seite 0,34 % pro Monat (t = 2,17).
+- Auch die **Investors** gewinnen (H−L 0,59 %, t = 2,33). **XGBoost** bleibt
+  etwa gleich und liegt jetzt vor OLS gestapelt, aber hinter OLS `single`.
 - **Der einzelne Decision Tree wird schlechter:** Ein großer Baum auf
   gestapelten Daten übertreibt die Unterschiede stark (Streuung der
-  Prognosen 1,22 % statt 0,36 %, Steigung nur 0,10).
-- Der Rückgang über die Zeit ist hier schwächer: Nur die Short-Seite der
-  Investors hat einen signifikanten Trend (t = −2,09).
+  Prognosen 1,02 % statt 0,37 %, Steigung nur 0,11).
+- Der Rückgang über die Zeit ist hier nur bei OLS signifikant (Trend der
+  H−L-Rendite t = −2,57, der Short-Seite t = −3,06); bei den Bäumen sind
+  alle Trends schwächer (|t| < 1,7). Der Random Forest hat 2004–2013 eine
+  H−L-Rendite von −0,03 % statt −0,66 % im Modus `single`.
+
+### Vergleich: Lewellens "large stocks" (`UNIVERSE = "large"`)
+
+Dieselben Läufe mit allen Stammaktien über dem NYSE-Median statt den 500
+größten – Lewellens Gruppe in Panel C (Einstellung und Daten siehe
+"Einstellungen ändern"). Im Prognosezeitraum sind es im Mittel **719 Aktien
+pro Monat** (Lewellen: 728 im Mittel seines ganzen Zeitraums). Ergebnisse in `output/single_large/` und
+`output/stacked_large/`, 1974–2013.
+
+| Modell | Steigung (t) – single | Steigung (t) – stacked | H−L EW in % (t) – single | H−L EW in % (t) – stacked | Long-Short p. a. / Sharpe – single |
+| --- | --- | --- | --- | --- | --- |
+| OLS | 0,48 (3,27) | 0,39 (2,95) | 0,87 (3,64) | 0,64 (2,72) | 9,37 % / 0,59 |
+| Decision Tree | 0,29 (1,77) | 0,20 (2,49) | 0,33 (1,36) | 0,26 (1,28) | 2,58 % / 0,23 |
+| Random Forest | 0,62 (1,58) | 0,57 (3,66) | 0,44 (1,55) | 0,66 (2,77) | 3,50 % / 0,27 |
+| XGBoost | 0,43 (3,34) | 0,29 (4,02) | 0,83 (3,72) | 0,76 (3,63) | 8,85 % / 0,58 |
+| Investors | 0,47 (1,31) | 0,71 (2,75) | 0,37 (1,25) | 0,52 (2,16) | 2,32 % / 0,21 |
+
+Equal Weight: 7,87 % p. a., Sharpe 0,53; Long Top 10 % mit OLS: 12,79 % /
+0,72.
+
+- **Mit dieser Abgrenzung liegt OLS sehr nahe an Lewellen:** Steigung 0,48
+  (t = 3,27) gegenüber 0,44 (3,64), H−L-Rendite 0,87 % (t = 3,64) gegenüber
+  1,00 % (3,70). Details im nächsten Abschnitt.
+- OLS und XGBoost sind deutlich stärker als mit den 500 größten Aktien;
+  die Stichprobe enthält zusätzlich rund 220 etwas kleinere Aktien.
+- **XGBoost ist gleichauf mit OLS** (H−L 0,83 % mit t = 3,72; IC t = 4,47,
+  der höchste im Modus `single`). Random Forest, Decision Tree und Investors
+  bleiben im Modus `single` deutlich dahinter.
+- Gestapelt verbessern sich wieder Random Forest und Investors, OLS wird
+  schwächer. Anders als bei den 500 größten bleibt aber **OLS `single` das
+  beste Verfahren**.
+- Der Zeitverlauf ist derselbe: Trend der H−L-Rendite im Modus `single` bei
+  allen Modellen signifikant negativ (t zwischen −2,40 und −3,15), ebenso der
+  der Short-Seite (t zwischen −2,39 und −2,88). In den letzten 10 Jahren
+  (2004–2013) ist die OLS-Steigung 0,01, die H−L-Rendite 0,00 %.
 
 ### Ergebnisse zu Schritt 8: Machine Forecast Disagreement
 
@@ -1134,40 +1183,47 @@ entspräche dem Befund des Papers.
 
 | Lauf | MFD Mittel (% p. M.) | Low (höchste MFD), EW in % | High (geringste MFD), EW in % | H−L EW in % (t) | H−L VW in % (t) | Steigung MFD in FM-Regression (t) |
 | --- | --- | --- | --- | --- | --- | --- |
-| `single`, 1974–2013 | 0,27 | 0,66 | 0,77 | 0,10 (0,44) | 0,10 (0,36) | −0,17 (−0,13) |
-| `single_until_2024`, 1974–2024 | 0,26 | 0,72 | 0,78 | 0,07 (0,34) | −0,02 (−0,08) | 0,04 (0,03) |
-| `stacked`, 1974–2013 | 0,51 | 0,75 | 0,71 | −0,03 (−0,11) | −0,18 (−0,59) | 0,03 (0,19) |
+| `single`, 1974–2013 | 0,27 | 0,68 | 0,73 | 0,06 (0,21) | 0,16 (0,53) | 0,45 (0,33) |
+| `single_until_2024`, 1974–2024 | 0,26 | 0,70 | 0,76 | 0,05 (0,24) | 0,09 (0,35) | 0,40 (0,32) |
+| `stacked`, 1974–2013 | 0,49 | 0,57 | 0,70 | 0,13 (0,42) | 0,01 (0,03) | −0,01 (−0,06) |
+| `single_large`, 1974–2013 | 0,27 | 0,58 | 0,77 | 0,19 (0,63) | 0,13 (0,39) | −0,05 (−0,05) |
+| `stacked_large`, 1974–2013 | 0,49 | 0,62 | 0,72 | 0,10 (0,33) | −0,04 (−0,14) | −0,12 (−0,65) |
 
 Strategien: Long = die 10 % mit der geringsten, Short = die 10 % mit der
 höchsten Disagreement. Long-Seite und Short-Seite wie oben in % pro Monat.
 
 | Lauf | Long: Rendite p. a. / Sharpe | Short: Rendite p. a. | Long-Short: Rendite p. a. / Sharpe | Long-Seite (t) | Short-Seite (t) | Equal Weight: Rendite / Sharpe |
 | --- | --- | --- | --- | --- | --- | --- |
-| `single`, 1974–2013 | 8,40 % / 0,62 | −10,07 % | −0,10 % / 0,08 | 0,08 (0,81) | 0,03 (0,17) | 7,06 % / 0,50 |
-| `single_until_2024` | 8,66 % / 0,64 | −10,60 % | −0,47 % / 0,05 | 0,06 (0,70) | 0,01 (0,08) | 7,61 % / 0,53 |
-| `stacked`, 1974–2013 | 7,69 % / 0,55 | −12,25 % | −2,96 % / −0,01 | 0,04 (0,38) | −0,06 (−0,28) | 7,06 % / 0,50 |
+| `single`, 1974–2013 | 8,09 % / 0,63 | −10,52 % | −1,01 % / 0,04 | 0,03 (0,30) | 0,02 (0,13) | 7,23 % / 0,51 |
+| `single_until_2024` | 8,43 % / 0,65 | −10,72 % | −0,93 % / 0,04 | 0,01 (0,15) | 0,04 (0,29) | 7,83 % / 0,54 |
+| `stacked`, 1974–2013 | 7,52 % / 0,57 | −10,11 % | −0,71 % / 0,07 | −0,00 (−0,01) | 0,13 (0,61) | 7,23 % / 0,51 |
+| `single_large` | 8,56 % / 0,65 | −10,34 % | −0,11 % / 0,11 | 0,02 (0,19) | 0,17 (0,78) | 7,87 % / 0,53 |
+| `stacked_large` | 7,83 % / 0,59 | −11,03 % | −1,50 % / 0,05 | −0,04 (−0,34) | 0,13 (0,62) | 7,87 % / 0,53 |
 
 - **Die Disagreement sagt die Renditen mit unserer Umsetzung nicht voraus –
   auch nicht auf der Short-Seite.** Die Aktien mit der höchsten Disagreement
-  schneiden praktisch genauso ab wie der Markt (Short-Seite 0,03 % bzw.
-  −0,06 % pro Monat, t weit unter 1). Gerade dort sitzt im Paper der Effekt.
+  schneiden nur wenig schlechter ab als der Markt (Short-Seite 0,02–0,17 %
+  pro Monat, alle t unter 1). Das Vorzeichen stimmt meist mit dem Paper
+  überein, ist aber nirgends signifikant. Gerade auf der Short-Seite sitzt
+  im Paper der Effekt.
 - **Die Long-Strategie mit der geringsten Disagreement schlägt Equal Weight
   vor allem beim Risiko**, kaum bei der Rendite: Die Volatilität ist
-  0,9–1,9 Prozentpunkte niedriger, die Sharpe Ratio dadurch höher. Das liegt
+  1,8–2,6 Prozentpunkte niedriger, die Sharpe Ratio dadurch höher. Das liegt
   daran, dass die MFD stark mit der Volatilität zusammenhängt: Die
-  Dezilportfolios schwanken bei geringster Disagreement um 4,3 % pro Monat,
-  bei höchster um 6,6 % (`stacked`: 4,5 % und 8,1 %). Investoren sind sich bei
+  Dezilportfolios schwanken bei geringster Disagreement um 4,1 % pro Monat,
+  bei höchster um 7,0 % (`stacked`: 4,3 % und 7,9 %). Investoren sind sich bei
   riskanten Aktien uneiniger – das passt zum Paper, in dem MFD mit der
   idiosynkratischen Volatilität korreliert.
-- **Die Short-Strategie verliert besonders viel** (−10 bis −12 % p. a.):
-  Leerverkauft werden die volatilsten Aktien, ohne dass sie schlechter
-  abschneiden als der Markt. Long-Short liegt deshalb bei null oder darunter.
-- **Kein Trend über die Zeit**: alle |t| < 1,1.
+- **Die Short-Strategie verliert besonders viel** (−10 bis −11 % p. a.):
+  Leerverkauft werden die volatilsten Aktien, ohne dass sie deutlich
+  schlechter abschneiden als der Markt. Long-Short liegt deshalb leicht
+  unter null.
+- **Kein Trend über die Zeit**: alle |t| < 0,6.
 - **Warum schwächer als im Paper?** Laut Paper entsteht der Effekt durch
   Überbewertung bei teuren Leerverkäufen (Miller, 1977) und sitzt vor allem
   auf der Short-Seite (Aktien mit hoher Disagreement). Bei Aktien mit den
   niedrigsten Leihgebühren findet das Paper selbst nur einen Alpha-Spread von
-  −0,12 % pro Monat (gegenüber −2,36 % bei den höchsten). Die 500 größten
+  −0,12 % pro Monat (gegenüber −2,36 % bei den höchsten). Die großen
   US-Aktien sind billig leerzuverkaufen und überwiegend institutionell
   gehalten – genau die Gruppe, in der der Effekt kaum auftritt. Dazu kommen
   14 statt 153 Kennzahlen und ein Baum statt eines Random Forest pro Investor.
@@ -1183,101 +1239,113 @@ sowie Lewellens Modell 1 und 2 im Vergleich (`FEATURE_SET`).
 
 Vergleichsgruppe bei Lewellen ist Panel C, **"Large stocks"** (größer als der
 NYSE-Median, im Mittel 728 Aktien), Modell 3, 10-Jahres-Fenster. Bei uns:
-OLS im Modus `single`, 1974–2013, 500 größte Aktien.
+OLS im Modus `single`, 1974–2013, einmal mit derselben Abgrenzung
+(`single_large`, im Mittel 719 Aktien) und einmal mit den 500 größten Aktien
+(`single`).
 
 **Tabelle 2 – Fama-MacBeth-Regressionen.** Die Höhe der Koeffizienten ist
 nicht vergleichbar (wir nutzen Ränge statt Rohwerten), Vorzeichen und
 Signifikanz aber schon:
 
-| Kennzahl | Lewellen, große Aktien (t) | Hier (t) |
-| --- | --- | --- |
-| Größe | −3,84 | −2,10 |
-| B/M | +2,31 | +3,33 |
-| Momentum | +5,05 | +4,49 |
-| Emissionen | −3,23 | −3,62 |
-| Accruals | −3,75 | −4,70 |
-| Profitabilität (ROA) | +2,89 | +2,78 |
-| Asset Growth | −0,82 | +0,22 |
-| Beta | +1,73 | +0,43 |
-| Volatilität | **−3,76** | −1,21 |
-| Dividende, Langfristrendite, Turnover, Verschuldung, Umsatz/Preis | nicht signifikant | nicht signifikant |
-| mittleres R² | 0,147 | 0,152 |
+| Kennzahl | Lewellen, große Aktien (t) | Hier, large stocks (t) | Hier, 500 größte (t) |
+| --- | --- | --- | --- |
+| Größe | −3,84 | −3,52 | −3,28 |
+| B/M | +2,31 | +3,46 | +3,10 |
+| Momentum | +5,05 | +4,73 | +4,36 |
+| Emissionen | −3,23 | −4,00 | −3,76 |
+| Accruals | −3,75 | −4,63 | −4,73 |
+| Profitabilität (ROA) | +2,89 | +2,89 | +2,61 |
+| Asset Growth | −0,82 | −0,44 | +0,48 |
+| Beta | +1,73 | +0,15 | +0,34 |
+| Volatilität | **−3,76** | −0,89 | −0,98 |
+| Dividende, Langfristrendite, Turnover, Verschuldung, Umsatz/Preis | nicht signifikant | nicht signifikant | nicht signifikant |
+| mittleres R² | 0,147 | 0,133 | 0,147 |
 
 Einzige echte Abweichung: Die Volatilität ist bei Lewellen klar signifikant
-negativ, bei uns nur schwach.
+negativ, bei uns nicht.
 
 **Tabelle 3 – Prognosegüte**
 
-| | Lewellen | Hier |
-| --- | --- | --- |
-| Mittel der Prognosen | 1,02 % | 0,59 % |
-| Streuung der Prognosen | 0,53 % | 0,41 % |
-| **Steigung (t)** | **0,44 (3,64)** | **0,42 (2,28)** |
-| R² | 0,020 | 0,025 |
+| | Lewellen | Hier, large stocks | Hier, 500 größte |
+| --- | --- | --- | --- |
+| Mittel der Prognosen | 1,02 % | 0,62 % | 0,58 % |
+| Streuung der Prognosen | 0,53 % | 0,42 % | 0,41 % |
+| **Steigung (t)** | **0,44 (3,64)** | **0,48 (3,27)** | **0,40 (2,26)** |
+| R² | 0,020 | 0,017 | 0,022 |
 
 Die Steigung ist praktisch identisch. Das niedrigere Mittel kommt von den
 Überrenditen (der risikofreie Zins lag 1974–2013 bei etwa 0,4 % pro Monat).
 
 **Tabelle 6 – Dezilportfolios** (H−L in % pro Monat)
 
-| | Lewellen: prognostiziert / realisiert (t) | Hier: prognostiziert / realisiert (t) |
-| --- | --- | --- |
-| gleichgewichtet | 1,87 / 1,00 (3,70) | 1,43 / 0,71 (2,56) |
-| wertgewichtet | 1,80 / 0,93 (3,25) | 1,41 / 0,78 (2,71) |
+| | Lewellen: prognostiziert / realisiert (t) | Hier, large stocks | Hier, 500 größte |
+| --- | --- | --- | --- |
+| gleichgewichtet | 1,87 / 1,00 (3,70) | 1,47 / 0,87 (3,64) | 1,41 / 0,70 (2,58) |
+| wertgewichtet | 1,80 / 0,93 (3,25) | 1,46 / 0,90 (3,48) | 1,40 / 0,84 (3,04) |
 
-Verhältnis realisiert zu prognostiziert: 0,53 bei Lewellen, 0,50 hier. In
-beiden Fällen übertreiben die Prognosen die Unterschiede um etwa den Faktor
-2, und die realisierten Renditen steigen fast monoton von Low nach High.
+Verhältnis realisiert zu prognostiziert (gleichgewichtet): 0,53 bei
+Lewellen, 0,59 bzw. 0,50 hier. In allen Fällen übertreiben die Prognosen die
+Unterschiede um etwa den Faktor 2, und die realisierten Renditen steigen
+fast monoton von Low nach High. Mit Lewellens Abgrenzung stimmen auch die
+t-Statistiken nahezu überein.
 
 **Fig. 2 / Abschnitt 3.6 – Zeitverlauf.** Dasselbe Muster: bis 2008 stabil,
 dann ein Einbruch. Mittlere Steigung der letzten 10 Jahre (2004–2013): −0,37
-bei Lewellen (große Aktien), −0,05 hier für OLS, −0,3 bis −1,1 für die
-Bäume. Darüber hinaus zeigen unsere Daten bis 2024, dass sich die
-Prognosekraft danach **nicht erholt** hat, und dass der Rückgang vor allem
-von der Short-Seite kommt.
+bei Lewellen (große Aktien), 0,01 (large stocks) bzw. −0,15 (500 größte)
+hier für OLS, −0,2 bis −1,5 für die Bäume. Darüber hinaus zeigen unsere Daten
+bis 2024, dass sich die Prognosekraft danach **nicht erholt** hat, und dass
+der Rückgang vor allem von der Short-Seite kommt.
 
-### Gu, Kelly & Xiu (2020): qualitativ bestätigt – aber nur mit gestapelten Daten
+### Gu, Kelly & Xiu (2020): nur teilweise bestätigt
 
 GKX finden, dass Bäume die lineare Regression schlagen, weil sie
-nichtlineare Wechselwirkungen erfassen. Das zeigt sich hier auch, aber nur
-im Modus `stacked` – also auf dem Weg, den GKX gehen (ein Modell auf dem
-ganzen Fenster):
+nichtlineare Wechselwirkungen erfassen. Hier zeigt sich das nur teilweise:
 
-| H−L EW in % pro Monat (t) | `single` | `stacked` |
-| --- | --- | --- |
-| OLS | 0,71 (2,56) | 0,64 (2,38) |
-| Random Forest | 0,37 (1,22) | 0,74 (2,99) |
-| XGBoost | 0,58 (2,27) | 0,70 (3,07) |
+| H−L EW in % pro Monat (t) | 500 größte, `single` | 500 größte, `stacked` | large stocks, `single` | large stocks, `stacked` |
+| --- | --- | --- | --- | --- |
+| OLS | 0,70 (2,58) | 0,54 (2,08) | 0,87 (3,64) | 0,64 (2,72) |
+| Random Forest | 0,32 (1,08) | 0,80 (3,12) | 0,44 (1,55) | 0,66 (2,77) |
+| XGBoost | 0,62 (2,36) | 0,58 (2,45) | 0,83 (3,72) | 0,76 (3,63) |
 
-Im Modus `single` verlieren die Bäume gegen OLS – ein Baum auf den 500
-Aktien eines einzigen Monats ist zu verrauscht. Die Größenordnung der
-Gewinne bei GKX ist nicht vergleichbar: Sie nutzen alle Aktien, 94
-Kennzahlen und neuronale Netze, und ein großer Teil ihrer Gewinne entsteht
-bei kleinen Aktien.
+- Im Modus `stacked` – dem Weg, den GKX gehen (ein Modell auf dem ganzen
+  Fenster) – schlagen Random Forest und XGBoost die gestapelte OLS in allen
+  Fällen.
+- Gegen Lewellens eigenes Verfahren (OLS `single`) gewinnt nur der gestapelte
+  Random Forest bei den 500 größten Aktien. Bei den large stocks bleibt
+  OLS `single` vorn, XGBoost `single` liegt gleichauf.
+- Im Modus `single` verliert der Random Forest klar – ein Modell auf den
+  Aktien eines einzigen Monats ist zu verrauscht.
+
+Die Größenordnung der Gewinne bei GKX ist nicht vergleichbar: Sie nutzen alle
+Aktien, 94 Kennzahlen und neuronale Netze, und ein großer Teil ihrer Gewinne
+entsteht bei kleinen Aktien.
 
 ### Bali, Kelly, Mörke & Rahman (2026): nicht repliziert
 
 | | Paper | Hier |
 | --- | --- | --- |
-| Spread geringste minus höchste Disagreement, wertgewichtet | ≈ 1,09 % pro Monat (13 % p. a., t = 4,32) | 0,10 % (t = 0,36) `single`, −0,18 % (t = −0,59) `stacked` |
-| Effekt auf der Short-Seite | hohe Disagreement klar überbewertet | Short-Seite ≈ 0 |
+| Spread geringste minus höchste Disagreement, wertgewichtet | ≈ 1,09 % pro Monat (13 % p. a., t = 4,32) | zwischen −0,04 % und 0,16 % pro Monat, alle t < 0,6 (vier Läufe 1974–2013) |
+| Effekt auf der Short-Seite | hohe Disagreement klar überbewertet | Short-Seite 0,02–0,17 %, nicht signifikant |
 | Disagreement hängt mit der Volatilität zusammen | ja | ja, deutlich |
 
 Repliziert ist nur der Zusammenhang mit der Volatilität. Die naheliegende
 Erklärung liefert das Paper selbst: Der Effekt entsteht durch teure
 Leerverkäufe; bei Aktien mit den niedrigsten Leihgebühren findet es nur
-−0,12 % pro Monat. Die 500 größten US-Aktien sind genau diese Gruppe. Dazu
+−0,12 % pro Monat. Große US-Aktien sind genau diese Gruppe. Dazu
 kommen 14 statt 153 Kennzahlen und ein Baum statt eines Random Forest pro
 Investor.
 
 ### Fazit
 
 Die Replikation von Lewellen mit OLS gelingt in den Kernaussagen (Steigung,
-Verhältnis von realisiertem zu prognostiziertem Spread, Zeitverlauf).
-Entscheidungsbäume verbessern die Prognosen nur, wenn sie auf gestapelten
-Daten trainiert werden. Der Disagreement-Effekt ist unter großen, leicht
+Verhältnis von realisiertem zu prognostiziertem Spread, Zeitverlauf); mit
+seiner Abgrenzung der large stocks stimmen sogar die t-Statistiken nahezu
+überein. Entscheidungsbäume schlagen OLS nur in Einzelfällen – vor allem der
+Random Forest auf gestapelten Daten. Seit 2009 bringt keines der Verfahren
+mehr eine Überrendite. Der Disagreement-Effekt ist unter großen, leicht
 leerverkaufbaren Aktien nicht vorhanden – was zu dem Mechanismus passt, den
 das Paper selbst vorschlägt.
+
 
 ---
 
@@ -1394,7 +1462,9 @@ output/
 │   ├── predicted_return/       Auswertung der Renditeprognosen (Schritte 3–7)
 │   └── investor_disagreement/  dieselbe Auswertung für die Disagreement (Schritt 8)
 ├── stacked/                    ESTIMATION = "stacked", 1974–2013, gleicher Aufbau
-└── single_until_2024/          ESTIMATION = "single", Prognosen bis 2024, gleicher Aufbau
+├── single_until_2024/          ESTIMATION = "single", Prognosen bis 2024, gleicher Aufbau
+├── single_large/               UNIVERSE = "large", ESTIMATION = "single", 1974–2013
+└── stacked_large/              UNIVERSE = "large", ESTIMATION = "stacked", 1974–2013
 ```
 
 **`predicted_return/`**
