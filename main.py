@@ -1,439 +1,217 @@
 """
 Masterprojekt - Prognose von Aktienrenditen mit baumbasierten Modellen.
 
-Vorgehen wie bei Lewellen (2015), "The Cross-Section of Expected Stock Returns",
-mit Machine-Learning-Modellen anstelle der linearen Regression:
-    1. Daten: JKP-Daten laden (eine Zeile pro Monat und Aktie), pro Monat die
-       500 größten Aktien mit Werten für alle Charakteristika
-    2. Schätzung: in jedem Monat ein Modell auf dem Querschnitt trainieren
-       (500 Aktien x 14 Charakteristika -> Rendite im Folgemonat); die erwartete
-       Rendite einer Aktie ist das Mittel der Prognosen der Monatsmodelle der
-       letzten 10 Jahre. Bei der linearen Regression (OLS) ist das genau das
-       Verfahren aus dem Paper - OLS läuft daher als Benchmark mit.
-    3. Das Modell aus dem Paper: Fama-MacBeth-Regressionen (Tabelle 2)
-    4. Güte der Prognosen: Verteilung und Out-of-Sample-Regression der
-       realisierten Renditen auf die Prognosen (Tabelle 3)
+Replikation von Lewellen (2015), "The Cross-Section of Expected Stock Returns",
+mit Machine-Learning-Modellen anstelle der linearen Regression. Das Skript läuft
+von oben nach unten durch:
+    1. Daten: pro Monat die 500 größten Aktien mit Werten für alle Charakteristika
+    2. Schätzung: in jedem Monat ein Modell auf dem Querschnitt trainieren; die
+       erwartete Rendite ist das Mittel der Prognosen der Monatsmodelle der
+       letzten 10 Jahre (für OLS genau das Verfahren des Papers)
+    3. Fama-MacBeth-Regressionen (Tabelle 2)
+    4. Güte der Prognosen (Tabelle 3)
     5. Nach der Prognose sortierte Dezilportfolios (Tabelle 6)
     6. Handelsstrategie (Long Top 20 %) im Vergleich zu Equal Weight
-    7. Entwicklung über die Zeit (Abschnitt 3.6, Fig. 2): Prognose-Steigung,
-       H-L-Rendite und Überrendite der Strategie als gleitender Mittelwert,
-       mit Test auf einen Rückgang
+    7. Entwicklung über die Zeit (Abschnitt 3.6, Fig. 2) mit Test auf einen Rückgang
+Ergebnisse (CSV-Dateien und Grafiken) landen im Ordner output/.
 
-Jeder Schritt ist eine Funktion unten in dieser Datei; main() ganz unten ruft
-sie nacheinander auf. Die eigentliche Rechnung steht in:
-    dataset.py     Schritt 1  (Daten laden, Stichprobe)
-    models.py      Schritt 2  (Modelle, Fama-MacBeth-Schätzung)
-    evaluation.py  Schritte 3-7  (Regressionen, Tabellen, Strategie, Zeitverlauf)
-    report.py      Ausgabe von Tabellen und Grafik
+models.py enthält die Modelle und das Schätzverfahren, util.py die Rechenbausteine.
 """
 
 import os
 
+import numpy as np
 import pandas as pd
 
-import dataset
-import evaluation
 import models
-import report
-
-# Ordner von main.py: alle Pfade beziehen sich darauf, egal von wo das Skript gestartet wird
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+import util
+from util import DATE, ID, RET, SIZE  # Spaltennamen: Monatsende, Aktie, Rendite im Folgemonat, Marktwert
 
 # =============================================================================
-# Einstellungen (die wichtigsten - weitere Details stehen direkt in den Schritten unten)
+# Einstellungen
 # =============================================================================
 
-USE_DUMMY_DATA = False       # True: Zufallsdaten zum schnellen Testen der Pipeline
 FEATURE_SET = "Model 3"      # Prädiktoren nach Lewellen (2015): "Model 1" (Größe, B/M, Momentum),
-                             # "Model 2" (+ Emissionen, Accruals, Profitabilität, Asset Growth),
-                             # "Model 3" (alle 14); None: alle Spalten außer den vier Spalten unten
-UNIVERSE_SIZE = 500          # pro Monat nur die 500 größten Aktien verwenden (None: alle im Datensatz)
-
-ESTIMATION = "fama_macbeth"  # "fama_macbeth": pro Monat ein Modell auf dem Querschnitt, Prognose = Mittel
-                             #   der Monatsmodelle im Fenster (wie die gemittelten Steigungen im Paper)
-                             # "pooled": ein Modell auf allen gestapelten Querschnitten des Fensters
-WINDOW_TYPE = "rolling"      # "rolling": die letzten TRAIN_WINDOW Monate (Paper: Hauptergebnis)
-                             # "expanding": alle Monate seit Beginn der Daten (Paper: "cumulative")
-TRAIN_WINDOW = 120           # Fensterlänge in Monaten (Paper: 10 Jahre);
-                             # bei "expanding" die Mindestlänge vor der ersten Prognose
+                             # "Model 2" (+ Emissionen, Accruals, Profitabilität, Asset Growth), "Model 3" (alle 14)
+UNIVERSE_SIZE = 500          # pro Monat nur die 500 größten Aktien (max. 1000)
+TRAIN_WINDOW = 120           # Prognose = Mittel der Monatsmodelle der letzten 120 Monate (Paper: 10 Jahre)
 TEST_START = "1974-01-01"    # erster Prognosemonat (Paper: 1974)
 TEST_END = "2013-12-31"      # letzter Prognosemonat (Paper: 2013; None: bis zum Ende der Daten, 2024)
-
 MODELS_TO_RUN = ["OLS", "DecisionTree", "RandomForest", "XGBoost"]
-                             # "OLS" = Benchmark: mit ESTIMATION = "fama_macbeth" genau das Modell aus dem Paper
-GRID_SEARCH = False          # True: Hyperparameter jeden Monat (bzw. in jedem Fenster) neu wählen (langsamer)
+LONG_PCT = 0.20              # Strategie: Kauf der besten 20 % der Aktien nach prognostizierter Rendite
+ROLLING_MONTHS = 12          # Schritt 7: gleitender Mittelwert (zusätzlich immer 120 Monate wie in Fig. 2)
 
-LONG_PCT = 0.20              # Kauf der besten 20 % der Aktien nach prognostizierter Rendite
-SHORT_PCT = 0.0              # Leerverkauf der schlechtesten x % der Aktien (0.0 = kein Shorting)
-
-ROLLING_MONTHS = 12          # Schritt 7: gleitender Mittelwert über so viele Monate (zusätzlich immer
-                             # 120 Monate wie in Lewellens Fig. 2)
-
-SAVE_RESULTS = True          # Ergebnisse (CSV-Dateien und Grafik) im Ordner output speichern
-SHOW_PLOT = True             # Grafik zusätzlich in einem Fenster anzeigen
-
-# --- Feste Werte (normalerweise nicht ändern) ---------------------------------
-DATE_COL = "eom"             # Monatsende
-ID_COL = "id"                # JKP-ID der Aktie
-TARGET_COL = "ret_exc_lead1m"  # Überrendite über den NÄCHSTEN Monat (das wird prognostiziert)
-SIZE_COL = "me"              # Marktkapitalisierung (untransformiert): Universum und wertgewichtete Portfolios
-TARGET_IS_EXCESS = True      # Zielgröße ist bereits eine Überrendite -> rf wird nicht nochmal abgezogen
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
-
-
-def check_settings():
-    """Prüft die Einstellungen auf Kombinationen, die nicht zusammenpassen."""
-    if ESTIMATION not in ("fama_macbeth", "pooled"):
-        raise ValueError("ESTIMATION must be 'fama_macbeth' or 'pooled'.")
-    if WINDOW_TYPE not in ("rolling", "expanding"):
-        raise ValueError("WINDOW_TYPE must be 'rolling' or 'expanding'.")
-
-
-def window_label():
-    """Beschreibung des Schätzfensters für Überschriften und Grafik."""
-    if WINDOW_TYPE == "rolling":
-        return f"{TRAIN_WINDOW}-month rolling window"
-    return f"expanding window (min. {TRAIN_WINDOW} months)"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 # =============================================================================
-# Ablauf
+# 1. Daten
 # =============================================================================
+util.print_section("1. Data")
 
-def load_sample():
-    """Schritt 1: Daten laden und die Stichprobe bilden.
+# Vorbereitete Daten (eine Zeile pro Monat und Aktie, Charakteristika bereits in Ränge umgerechnet).
+# Fehlt die Datei, wird sie einmalig aus den 6-GB-Rohdaten des Tutors erzeugt.
+prepared_path = os.path.join(BASE_DIR, "data", "jkp_top1000_25y_5y_rank.csv.gz")
+if not os.path.exists(prepared_path):
+    print("  Building prepared data from the raw JKP data (about 1 minute) ...")
+    util.build_prepared_data(os.path.join(BASE_DIR, "Thema 3 - Stock Return Prediction", "DATA", "USA.parquet"),
+                             prepared_path)
+df = pd.read_csv(prepared_path, parse_dates=[DATE])
+features = util.LEWELLEN_MODELS[FEATURE_SET]
 
-    Rückgabe: (Daten, Liste der Charakteristika, risikofreier Zins oder None).
-    """
-    report.print_section("1. Data")
-
-    # Import-Einstellungen: pro Monat die `top_k` größten Aktien nach Marktkapitalisierung, mit ihren Daten
-    # der `years_before` Jahre davor (max. Trainingszeitraum) und der `years_after` Jahre danach (max.
-    # Prognosezeitraum). Charakteristika werden pro Monat transformiert: "rank" (wie Tutor), "z" oder "none".
-    top_k, years_before, years_after, transform = 1000, 25, 5, "rank"
-    if UNIVERSE_SIZE and not USE_DUMMY_DATA and UNIVERSE_SIZE > top_k:
-        raise ValueError(f"UNIVERSE_SIZE must not be larger than the imported top_k ({top_k}).")
-    data_path = os.path.join(BASE_DIR, "Thema 3 - Stock Return Prediction", "DATA", "USA.parquet")
-    # vorgefilterte Daten (klein genug für Git): werden geladen, falls vorhanden, sonst einmalig aus
-    # data_path erstellt. Der Dateiname enthält die Import-Einstellungen - ändert man diese, entsteht eine neue Datei.
-    prepared_path = os.path.join(BASE_DIR, "data", f"jkp_top{top_k}_{years_before}y_{years_after}y_{transform}.csv.gz")
-
-    # Stichprobe: erster Monat der Schätzung (Paper: 1964, Beginn der Compustat-Daten); wie im Paper nur
-    # Aktien mit Werten für alle Charakteristika
-    sample_start = "1964-01-01"
-    risk_free_path = os.path.join(BASE_DIR, "data", "risk_free.csv")  # nur bei TARGET_IS_EXCESS = False:
-                                 # CSV (date, rf pro Periode); fehlt die Datei, wird rf ignoriert
-
-    # --- Daten laden (Dummy-Daten, vorbereitete CSV oder einmalig aus der Parquet-Datei bauen) ---
-    if USE_DUMMY_DATA:
-        df = dataset.make_dummy_data(seed=42, date_col=DATE_COL, id_col=ID_COL,
-                                     target_col=TARGET_COL, size_col=SIZE_COL)
-    elif os.path.exists(prepared_path):
-        print(f"  Loading prepared data '{os.path.relpath(prepared_path, BASE_DIR)}'")
-        df = dataset.load_prepared_data(prepared_path, DATE_COL)
-    else:
-        print(f"  Building prepared data from '{os.path.relpath(data_path, BASE_DIR)}' (about 1 minute) ...")
-        df = dataset.load_data(data_path, top_k, years_before, years_after, transform)
-        dataset.save_prepared_data(df, prepared_path)
-        print(f"  Saved to '{os.path.relpath(prepared_path, BASE_DIR)}'")
-
-    # --- Charakteristika wählen (die Dummy-Daten haben eigene Spaltennamen) ---
-    use_feature_set = FEATURE_SET and not USE_DUMMY_DATA
-    if use_feature_set:
-        feature_cols = dataset.LEWELLEN_MODELS[FEATURE_SET]
-    else:
-        exclude = [DATE_COL, ID_COL, TARGET_COL, SIZE_COL]
-        feature_cols = [c for c in df.columns if c not in exclude]
-
-    # --- Stichprobe bilden (die Dummy-Daten haben eigene Zeiträume ab 2010, daher kein Startdatum) ---
-    if USE_DUMMY_DATA:
-        sample_start = None
-    df = dataset.prepare_data(df, DATE_COL, ID_COL, TARGET_COL, feature_cols)
-    print(f"  {len(df):,} rows | {df[ID_COL].nunique():,} stocks in total | {df[DATE_COL].nunique()} periods "
-          f"({report.fmt_date(df[DATE_COL].min())} - {report.fmt_date(df[DATE_COL].max())})")
-    df = dataset.select_sample(df, DATE_COL, SIZE_COL, feature_cols, sample_start, True, UNIVERSE_SIZE)
-    print(f"  Sample from {report.fmt_date(df[DATE_COL].min())}: {len(feature_cols)} characteristics "
-          f"({FEATURE_SET if use_feature_set else 'all columns'}), stocks with missing values removed")
-    if UNIVERSE_SIZE:
-        print(f"  Universe: {UNIVERSE_SIZE} largest stocks per month by '{SIZE_COL}'")
-
-    # --- Risikofreier Zins (nur nötig, wenn die Zielgröße keine Überrendite ist) ---
-    rf = None
-    if TARGET_IS_EXCESS:
-        print("  Risk-free rate: not needed - the target already is an excess return")
-    else:
-        rf = dataset.load_risk_free(risk_free_path, df[DATE_COL].unique())
-        if rf is None:
-            print(f"  Risk-free rate: not available ('{risk_free_path}') - Sharpe ratios use raw returns")
-        else:
-            print(f"  Risk-free rate: loaded from '{risk_free_path}' "
-                  f"(mean {rf.mean() * 12:.2%} p.a.)")
-    return df, feature_cols, rf
+# Stichprobe wie im Paper: ab 1964, nur Aktien mit Rendite und allen Charakteristika,
+# davon pro Monat die 500 größten nach Marktkapitalisierung
+df = df.sort_values([DATE, ID])
+df = df[df[DATE] >= "1964-01-01"].dropna(subset=[RET, *features])
+size_rank = df.groupby(DATE)[SIZE].rank(ascending=False, method="first")  # 1 = größte Aktie
+df = df[size_rank <= UNIVERSE_SIZE].reset_index(drop=True)
+print(f"  {len(df):,} rows | {df[ID].nunique():,} stocks | {df[DATE].nunique()} months "
+      f"({df[DATE].min():%Y-%m} - {df[DATE].max():%Y-%m}) | {len(features)} characteristics ({FEATURE_SET})")
 
 
-def estimate(df, feature_cols):
-    """Schritt 2: Modelle schätzen und out-of-sample prognostizieren (Fama-MacBeth oder pooled).
+# =============================================================================
+# 2. Schätzung: ein Modell pro Monat, Prognose = Mittel der letzten 120 Monatsmodelle
+# =============================================================================
+util.print_section(f"2. Estimation: one model per month, forecasts averaged over {TRAIN_WINDOW} months")
 
-    Rückgabe: (Prognosen, Feature Importances, gewählte Hyperparameter).
-    """
-    # Hyperparameter pro Modell (fest, solange GRID_SEARCH = False). Sie begrenzen, wie fein ein Baum die
-    # Aktien aufteilen darf - je feiner, desto eher lernt er Zufallsrauschen statt echter Zusammenhänge:
-    #   max_depth         maximale Anzahl Ja/Nein-Fragen hintereinander (Tiefe des Baums)
-    #   min_samples_leaf  mindestens so viele Aktien pro Endknoten (Blatt); dessen Prognose ist ihre Durchschnittsrendite
-    #   n_estimators      Anzahl der Bäume (Random Forest, XGBoost)
-    #   max_features      Random Forest: Anteil der Charakteristika, aus denen bei jeder Frage gewählt wird
-    #                     ("sqrt": Wurzel aus 14, also 3 zufällige) - macht die Bäume verschieden
-    #   learning_rate     XGBoost: mit welchem Gewicht jeder neue Baum in die Prognose eingeht
-    #   subsample, colsample_bytree  XGBoost: zufälliger Anteil der Aktien bzw. Charakteristika je Baum
-    # random_state ist der Startwert des Zufallsgenerators: gleiche Ergebnisse bei jedem Lauf.
-    random_state = 42
-    model_params = {
-        "OLS": {},
-        "DecisionTree": {"max_depth": 5, "min_samples_leaf": 50},
-        "RandomForest": {"n_estimators": 200, "max_depth": 6, "min_samples_leaf": 50,
-                         "max_features": "sqrt", "n_jobs": -1},
-        "XGBoost": {"n_estimators": 200, "max_depth": 3, "learning_rate": 0.05,
-                    "subsample": 0.8, "colsample_bytree": 0.8, "n_jobs": -1},
-    }
+# Monate durchnummerieren (0 = Januar 1964) und Nummer des ersten und letzten Prognosemonats bestimmen.
+# Vor der ersten Prognose müssen TRAIN_WINDOW Monate liegen.
+dates = np.sort(df[DATE].unique())
+month_nr = np.searchsorted(dates, df[DATE].to_numpy())
+first = max(TRAIN_WINDOW, np.searchsorted(dates, np.datetime64(TEST_START)))
+last = len(dates) - 1 if TEST_END is None else np.searchsorted(dates, np.datetime64(TEST_END), side="right") - 1
 
-    # Grid Search: zu testende Werte (alle übrigen Parameter kommen aus model_params). Verglichen wird auf den
-    # `validation_window` Monaten vor dem Prognosemonat.
-    validation_window = 12
-    param_grids = {
-        "DecisionTree": {"max_depth": [3, 5, 8], "min_samples_leaf": [20, 50, 100]},
-        "RandomForest": {"max_depth": [3, 6], "max_features": ["sqrt", 0.5]},
-        "XGBoost": {"max_depth": [2, 3, 5], "learning_rate": [0.01, 0.05, 0.1]},
-    }
+X = df[features].to_numpy(dtype=float)  # Charakteristika am Ende von Monat t
+y = df[RET].to_numpy(dtype=float)       # Rendite im Monat t + 1
 
-    # nur "pooled": Monate, die mit einem Modell prognostiziert werden, bevor neu trainiert wird
-    retrain_every = 1
+# Ergebnistabelle: eine Zeile pro Prognosemonat und Aktie, eine Prognosespalte pro Modell
+is_test_row = (month_nr >= first) & (month_nr <= last)
+preds = df.loc[is_test_row, [DATE, ID, SIZE, RET]].reset_index(drop=True)
+importances = {}
+for name in MODELS_TO_RUN:
+    forecast, model_importances = models.fama_macbeth_forecast(
+        models.MODELS[name], X, y, month_nr, first, last, TRAIN_WINDOW, name)
+    preds[name] = forecast[is_test_row]
+    if model_importances:  # OLS hat keine Feature Importances
+        importances[name] = np.mean(model_importances, axis=0)
+importances = pd.DataFrame(importances, index=features)
 
-    # die Dummy-Daten haben eigene Zeiträume (ab 2010), daher keine Testgrenzen
-    test_start = None if USE_DUMMY_DATA else TEST_START
-    test_end = None if USE_DUMMY_DATA else TEST_END
-
-    args = dict(
-        models=models.get_models(MODELS_TO_RUN, model_params, random_state), feature_cols=feature_cols,
-        target_col=TARGET_COL, date_col=DATE_COL, id_col=ID_COL, train_window=TRAIN_WINDOW,
-        expanding=WINDOW_TYPE == "expanding", test_start=test_start, test_end=test_end, size_col=SIZE_COL,
-        param_grids=param_grids if GRID_SEARCH else None, validation_window=validation_window,
-    )
-    grid = ", grid search" if GRID_SEARCH else ""
-    if ESTIMATION == "fama_macbeth":
-        report.print_section(f"2. Fama-MacBeth estimation: one model per month, "
-                             f"forecasts averaged over a {window_label()}{grid}")
-        preds, importances, best_params = models.run_fama_macbeth(df, **args)
-    else:
-        report.print_section(f"2. Pooled estimation: one model per {window_label()}{grid}")
-        preds, importances, best_params = models.run_pooled(df, **args, retrain_every=retrain_every)
-
-    print(f"  Forecasts: {report.fmt_date(preds[DATE_COL].min())} - {report.fmt_date(preds[DATE_COL].max())} | "
-          f"{preds[DATE_COL].nunique()} months | {preds.groupby(DATE_COL).size().mean():.0f} stocks per month")
-    if not best_params.empty:
-        print("\n  Most frequently chosen hyperparameters:")
-        for name, g in best_params.groupby("model"):
-            counts = g["params"].astype(str).value_counts()
-            print(f"  {name:<13} {counts.index[0]}  ({counts.iloc[0]} of {len(g)})")
-    if not importances.empty:
-        print("\n  Top 10 features (mean importance over all models of the tree methods):")
-        report.print_table(importances.loc[importances.mean(axis=1).nlargest(10).index], decimals=4)
-    return preds, importances, best_params
+print(f"  Forecasts: {preds[DATE].min():%Y-%m} - {preds[DATE].max():%Y-%m} | {preds[DATE].nunique()} months | "
+      f"{preds.groupby(DATE).size().mean():.0f} stocks per month")
+print("\n  Top 10 features (mean importance over all monthly models):")
+util.print_table(importances.loc[importances.mean(axis=1).nlargest(10).index], decimals=4)
 
 
-def paper_regressions(df, feature_cols, preds):
-    """Schritt 3: das Modell aus dem Paper - Fama-MacBeth-Regressionen (Lewellen, Tabelle 2).
+# =============================================================================
+# 3. Fama-MacBeth-Regressionen - das Modell aus dem Paper (Tabelle 2)
+# =============================================================================
+util.print_section("3. Fama-MacBeth regressions (Lewellen Table 2)")
 
-    Verwendet alle Monate, deren Regressionen in die Prognosen eingehen (Paper: 1964-2013).
-    Rückgabe: (Tabelle der mittleren Koeffizienten, monatliche Koeffizienten).
-    """
-    report.print_section("3. Fama-MacBeth regressions - the model of the paper (Lewellen Table 2)")
-    table, monthly = evaluation.fama_macbeth(df[df[DATE_COL] < preds[DATE_COL].max()], TARGET_COL,
-                                             feature_cols, DATE_COL)
-    table[["Coef", "S.E."]] *= 100  # in % pro Monat, wie im Paper
-    report.print_table(table)
-    print(f"  {len(monthly)} monthly regressions ({report.fmt_date(monthly.index[0])} - "
-          f"{report.fmt_date(monthly.index[-1])}) | mean R2 {monthly['R2'].mean():.3f} | "
-          f"mean N {monthly['N'].mean():.0f}\n"
-          "  Coef in % per month (with rank characteristics: return difference between the lowest and\n"
-          "  the highest ranked stock) | S.E. and t-stat with Newey-West standard errors")
-    if ESTIMATION == "fama_macbeth" and "OLS" in MODELS_TO_RUN:
-        print(f"  The OLS forecasts below average exactly these monthly coefficients over the {window_label()}.")
-    return table, monthly
+# alle Monate, deren Regressionen in die Prognosen eingehen
+table2, fm_monthly = util.fama_macbeth(df[df[DATE] < preds[DATE].max()], RET, features)
+table2[["Coef", "S.E."]] *= 100  # in % pro Monat, wie im Paper
+util.print_table(table2)
+print(f"  {len(fm_monthly)} monthly regressions | mean R2 {fm_monthly['R2'].mean():.3f}\n"
+      "  Coef in % per month: return difference between the lowest and the highest ranked stock\n"
+      "  t-stat with Newey-West standard errors (4 lags)")
 
 
-def evaluate_forecasts(preds):
-    """Schritt 4: Prognosegüte (Lewellen, Tabelle 3) und weitere Kennzahlen.
+# =============================================================================
+# 4. Güte der Prognosen (Tabelle 3)
+# =============================================================================
+util.print_section("4. Expected-return estimates (Lewellen Table 3)")
 
-    Rückgabe: (Tabelle 3, weitere Prognosekennzahlen, Korrelationen der Prognosen oder None).
-    """
-    report.print_section("4. Expected-return estimates (Lewellen Table 3)")
-    table3 = pd.DataFrame({name: evaluation.forecast_evaluation(preds, name, TARGET_COL, DATE_COL)
-                           for name in MODELS_TO_RUN}).T
-    report.print_table(table3, report.EVALUATION_FORMATS)
-    print("  Avg/Std/p10/p90: cross-sectional distribution of the forecasts (% per month)\n"
-          "  Slope/S.E./t-stat/R2: out-of-sample FM regression of realized returns on the forecasts\n"
-          "  (slope 1 = unbiased forecast, slope > 0 = the forecast separates high and low returns)")
+table3 = pd.DataFrame({name: util.forecast_evaluation(preds, name) for name in MODELS_TO_RUN}).T
+util.print_table(table3, decimals=3)
+print("  Avg/Std/p10/p90: distribution of the forecasts (% per month)\n"
+      "  Slope: FM regression of realized returns on the forecasts (1 = unbiased, > 0 = useful)")
 
-    print("\n  Further prediction metrics:")
-    metrics = pd.DataFrame({name: evaluation.prediction_metrics(preds, name, TARGET_COL, DATE_COL)
-                            for name in MODELS_TO_RUN}).T
-    report.print_table(metrics, decimals=4)
+metrics = pd.DataFrame({name: util.prediction_metrics(preds, name) for name in MODELS_TO_RUN}).T
+print("\n  Further prediction metrics:")
+util.print_table(metrics, decimals=4)
 
-    correlations = None
-    if len(MODELS_TO_RUN) > 1:
-        correlations = evaluation.forecast_correlations(preds, MODELS_TO_RUN, DATE_COL)
-        print("\n  Mean cross-sectional correlation of the forecasts (cf. Lewellen Table 4):")
-        report.print_table(correlations)
-    return table3, metrics, correlations
+# mittlere Korrelation der Prognosen zweier Modelle im Querschnitt (vgl. Lewellen, Tabelle 4)
+correlations = preds.groupby(DATE)[MODELS_TO_RUN].corr().groupby(level=1).mean().loc[MODELS_TO_RUN, MODELS_TO_RUN]
+print("\n  Mean cross-sectional correlation of the forecasts:")
+util.print_table(correlations)
 
 
-def portfolio_sorts(preds):
-    """Schritt 5: nach der Prognose sortierte Portfolios (Lewellen, Tabelle 6). Rückgabe: Tabelle pro Modell."""
-    n_portfolios = 10  # Anzahl der nach Prognose sortierten Portfolios (Paper: Dezile)
-    report.print_section(f"5. Portfolios sorted by expected return (Lewellen Table 6, {n_portfolios} groups)")
-    portfolios = {name: evaluation.sorted_portfolios(preds, name, TARGET_COL, DATE_COL, SIZE_COL, n_portfolios)
-                  for name in MODELS_TO_RUN}
-    for name, table in portfolios.items():
-        print(f"\n  {name}")
-        report.print_table(table)
-    print("\n  EW/VW: equal-/value-weighted | Pred/Avg/Std in % per month | Sharpe annualized | "
-          "t-stat with Newey-West SE")
-    return portfolios
+# =============================================================================
+# 5. Dezilportfolios (Tabelle 6)
+# =============================================================================
+util.print_section("5. Portfolios sorted by expected return (Lewellen Table 6)")
+
+portfolios = {name: util.sorted_portfolios(preds, name) for name in MODELS_TO_RUN}
+for name, table in portfolios.items():
+    print(f"\n  {name}")
+    util.print_table(table)
+print("\n  EW/VW: equal-/value-weighted | Pred/Avg/Std in % per month | Sharpe annualized | Newey-West t-stat")
 
 
-def trading_strategy(preds, rf):
-    """Schritt 6: Handelsstrategie pro Modell im Vergleich zu Equal Weight.
+# =============================================================================
+# 6. Handelsstrategie: Long Top 20 % gegen Equal Weight
+# =============================================================================
+util.print_section(f"6. Trading strategy: long top {LONG_PCT:.0%}")
 
-    Rückgabe: (Renditen pro Monat und Strategie, Performance-Kennzahlen).
-    """
-    report.print_section(f"6. Trading strategy: {evaluation.strategy_label(LONG_PCT, SHORT_PCT)}")
-    returns = pd.DataFrame({name: evaluation.strategy_returns(preds, name, TARGET_COL, DATE_COL,
-                                                              LONG_PCT, SHORT_PCT)
-                            for name in MODELS_TO_RUN})
-    # Benchmark: alle Aktien des Universums gleichgewichtet
-    returns["Equal Weight"] = evaluation.equal_weight_returns(preds, TARGET_COL, DATE_COL)
-
-    # ein Long-Short-Portfolio ist selbstfinanzierend, seine Rendite ist daher bereits eine Überrendite
-    zero_cost = LONG_PCT > 0 and SHORT_PCT > 0
-    perf = pd.DataFrame({name: evaluation.performance_metrics(
-                             returns[name], 12, rf=None if zero_cost and name in MODELS_TO_RUN else rf)
-                         for name in returns}).T
-    report.print_table(perf, report.PERFORMANCE_FORMATS)
-    return returns, perf
+strategy = pd.DataFrame({name: util.strategy_returns(preds, name, LONG_PCT) for name in MODELS_TO_RUN})
+strategy["Equal Weight"] = preds.groupby(DATE)[RET].mean()  # Benchmark: alle 500 Aktien gleichgewichtet
+performance = pd.DataFrame({name: util.performance_metrics(strategy[name]) for name in strategy}).T
+util.print_table(performance, decimals=4)
 
 
-def time_variation(preds, strategy):
-    """Schritt 7: Wie verändert sich die Prognosegüte über die Zeit? (Lewellen, Abschnitt 3.6 und Fig. 2)
+# =============================================================================
+# 7. Entwicklung über die Zeit (Lewellen, Abschnitt 3.6 und Fig. 2)
+# =============================================================================
+util.print_section("7. Evolution through time (Lewellen Section 3.6 / Fig. 2)")
 
-    Drei monatliche Reihen pro Modell:
-    - Prognose-Steigung: Steigung der Regression realisierte Rendite auf Prognose in diesem Monat
-      (ihr Mittelwert ist die Steigung aus Tabelle 3)
-    - H-L: Rendite High-Dezil minus Low-Dezil, gleichgewichtet (vgl. Tabelle 6)
-    - Überrendite der Strategie aus Schritt 6 gegenüber Equal Weight
-    Für jede Reihe wird getestet, ob sie in der zweiten Hälfte des Prognosezeitraums kleiner ist
-    und ob es einen linearen Trend gibt.
-    Rückgabe: (monatliche Reihen je Kennzahl, Tabelle der Trendtests).
-    """
-    report.print_section("7. Evolution through time (Lewellen Section 3.6 / Fig. 2)")
-    n_portfolios = 10
-    series = {
-        "Predictive slope": pd.DataFrame(
-            {name: evaluation.monthly_slopes(preds, name, TARGET_COL, DATE_COL) for name in MODELS_TO_RUN}),
-        "H-L return EW (%)": pd.DataFrame(
-            {name: evaluation.portfolio_returns(preds, name, TARGET_COL, DATE_COL, None, n_portfolios)[1]["H-L"]
-             for name in MODELS_TO_RUN}) * 100,
-        "Strategy minus Equal Weight (%)": strategy[MODELS_TO_RUN].sub(strategy["Equal Weight"], axis=0) * 100,
-    }
+# Drei Kennzahlen für jeden Monat einzeln:
+# - Steigung der Regression realisierte Rendite auf Prognose (ihr Mittelwert ist die Steigung aus Tabelle 3)
+# - Rendite High-Dezil minus Low-Dezil, gleichgewichtet (vgl. Tabelle 6)
+# - Rendite der Strategie aus Schritt 6 minus Equal Weight
+series = {
+    "Predictive slope": pd.DataFrame(
+        {name: util.fama_macbeth(preds, RET, [name])[1][name] for name in MODELS_TO_RUN}),
+    "H-L return EW (%)": pd.DataFrame(
+        {name: util.portfolio_returns(preds, name)[1]["H-L"] for name in MODELS_TO_RUN}) * 100,
+    "Strategy minus Equal Weight (%)": strategy[MODELS_TO_RUN].sub(strategy["Equal Weight"], axis=0) * 100,
+}
 
-    # Trennung in zwei gleich lange Hälften des Prognosezeitraums (Standard: 1974-1993 und 1994-2013)
-    dates = series["Predictive slope"].index
-    split_date = dates[len(dates) // 2]
-    trends = pd.concat({label: pd.DataFrame({name: evaluation.trend_test(monthly[name], split_date)
-                                             for name in monthly}).T
-                        for label, monthly in series.items()}, names=["series", "model"])
-    report.print_table(trends)
-    print(f"  1st half: {report.fmt_date(dates[0])} - {report.fmt_date(dates[len(dates) // 2 - 1])} | "
-          f"2nd half: {report.fmt_date(split_date)} - {report.fmt_date(dates[-1])}\n"
-          "  Difference: 2nd minus 1st half | Trend: change of the mean per 10 years | "
-          "t-stats with Newey-West SE\n"
-          "  A negative value with |t| > 2 indicates a significant decline.")
-    return series, trends
+# Test auf einen Rückgang: zwei gleich lange Hälften (Standard: 1974-1993 und 1994-2013) und linearer Trend
+months = series["Predictive slope"].index
+split_date = months[len(months) // 2]
+trends = pd.concat({label: pd.DataFrame({name: util.trend_test(monthly[name], split_date) for name in monthly}).T
+                    for label, monthly in series.items()}, names=["series", "model"])
+util.print_table(trends)
+print(f"  2nd half from {split_date:%Y-%m} | Difference: 2nd minus 1st half | Trend: change per 10 years\n"
+      "  t-stats with Newey-West SE; a negative value with |t| > 2 indicates a significant decline")
 
 
-def save_results(results):
-    """Speichert alle Tabellen als CSV-Dateien in OUTPUT_DIR (leere und fehlende Tabellen entfallen).
+# =============================================================================
+# Ergebnisse speichern
+# =============================================================================
+results = {
+    "predictions.csv.gz": preds.set_index([DATE, ID]),  # komprimiert, eine Zeile pro Monat und Aktie
+    "feature_importance.csv": importances,
+    "fama_macbeth_regressions.csv": table2,
+    "fama_macbeth_monthly_coefficients.csv": fm_monthly,
+    "forecast_evaluation.csv": table3,
+    "prediction_metrics.csv": metrics,
+    "forecast_correlations.csv": correlations,
+    "sorted_portfolios.csv": pd.concat(portfolios, names=["model", "portfolio"]),
+    "strategy_returns.csv": strategy,
+    "performance.csv": performance,
+    "time_variation_monthly.csv": pd.concat(series, axis=1),
+    "time_variation_trends.csv": trends,
+}
+for filename, table in results.items():
+    table.to_csv(os.path.join(OUTPUT_DIR, filename))
 
-    Die Prognosen (eine Zeile pro Monat und Aktie) werden komprimiert gespeichert (.csv.gz).
-    """
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    for name, table in results.items():
-        if table is not None and not table.empty:
-            filename = f"{name}.csv.gz" if name == "predictions" else f"{name}.csv"
-            table.to_csv(os.path.join(OUTPUT_DIR, filename))
-    print(f"\n  Results saved to '{OUTPUT_DIR}'")
-
-
-def plot_strategy(returns, perf):
-    """Grafik: Wertentwicklung der Strategien mit Kennzahlentabelle (gespeichert und/oder angezeigt)."""
-    subtitle = [f"{evaluation.strategy_label(LONG_PCT, SHORT_PCT)} by predicted return"]
-    if UNIVERSE_SIZE:
-        subtitle.append(f"top {UNIVERSE_SIZE} stocks")
-    subtitle.append(f"{'Fama-MacBeth' if ESTIMATION == 'fama_macbeth' else 'pooled'}, {window_label()}")
-    if TARGET_IS_EXCESS:
-        subtitle.append("excess returns")
-    subtitle.append(f"{report.fmt_date(returns.index[0])} - {report.fmt_date(returns.index[-1])}")
-    report.plot_performance(
-        returns, perf,
-        title="Strategy performance vs. equal weight",
-        subtitle=" | ".join(subtitle),
-        save_path=os.path.join(OUTPUT_DIR, "performance.png") if SAVE_RESULTS else None,
-        show=SHOW_PLOT,
-    )
-
-
-def plot_time_variation(series):
-    """Grafiken zu Schritt 7: gleitende Mittelwerte über ROLLING_MONTHS und über 120 Monate (wie Fig. 2)."""
-    for window in sorted({ROLLING_MONTHS, 120}):
-        report.plot_time_variation(
-            series, window,
-            title=f"Predictive ability through time ({window}-month rolling mean)",
-            subtitle=f"{'Fama-MacBeth' if ESTIMATION == 'fama_macbeth' else 'pooled'}, {window_label()} | "
-                     f"{f'top {UNIVERSE_SIZE} stocks' if UNIVERSE_SIZE else 'all stocks'} | "
-                     "dashed line: slope of 1 (unbiased forecast)",
-            save_path=os.path.join(OUTPUT_DIR, f"time_variation_{window}m.png") if SAVE_RESULTS else None,
-            show=SHOW_PLOT,
-        )
-
-
-def main():
-    check_settings()
-    df, feature_cols, rf = load_sample()                       # Schritt 1
-    preds, importances, best_params = estimate(df, feature_cols)  # Schritt 2
-    fm_table, fm_monthly = paper_regressions(df, feature_cols, preds)  # Schritt 3
-    table3, metrics, correlations = evaluate_forecasts(preds)  # Schritt 4
-    portfolios = portfolio_sorts(preds)                        # Schritt 5
-    strategy, perf = trading_strategy(preds, rf)               # Schritt 6
-    series, trends = time_variation(preds, strategy)           # Schritt 7
-
-    if SAVE_RESULTS:
-        save_results({
-            "predictions": preds.set_index([DATE_COL, ID_COL]),
-            "feature_importance": importances,
-            "best_params": best_params.set_index([DATE_COL, "model"]) if not best_params.empty else None,
-            "fama_macbeth_regressions": fm_table,
-            "fama_macbeth_monthly_coefficients": fm_monthly,
-            "forecast_evaluation": table3,
-            "prediction_metrics": metrics,
-            "forecast_correlations": correlations,
-            "sorted_portfolios": pd.concat(portfolios, names=["model", "portfolio"]),
-            "strategy_returns": strategy,
-            "performance": perf,
-            "time_variation_monthly": pd.concat(series, axis=1),
-            "time_variation_trends": trends,
-        })
-    plot_strategy(strategy, perf)
-    plot_time_variation(series)
-
-
-if __name__ == "__main__":
-    main()
+period = f"{preds[DATE].min():%Y} - {preds[DATE].max():%Y}, top {UNIVERSE_SIZE} stocks"
+util.plot_performance(strategy, f"Long top {LONG_PCT:.0%} by predicted return vs. equal weight ({period})",
+                      os.path.join(OUTPUT_DIR, "performance.png"))
+for window in [ROLLING_MONTHS, 120]:
+    util.plot_time_variation(series, window, f"Predictive ability through time, {window}-month rolling mean "
+                             f"({period})", os.path.join(OUTPUT_DIR, f"time_variation_{window}m.png"))
+print(f"\n  Results saved to '{OUTPUT_DIR}'")

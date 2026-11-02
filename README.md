@@ -54,40 +54,32 @@ Schritte nacheinander und schreibt die Tabellen in die Konsole. Ergebnisse
 Standardlaufs liegen dort bereits im Repository – man muss das Skript also
 nicht laufen lassen, um sie anzusehen. Ein kompletter Lauf
 mit allen vier Modellen dauert auf einem Rechner mit 4 Kernen etwa
-7 Minuten; der Random Forest braucht davon am längsten. Mit Grid Search
-entsprechend ein Vielfaches.
-
-Zum schnellen Ausprobieren: In `main.py` `USE_DUMMY_DATA = True` setzen
-(Zufallsdaten, läuft in wenigen Minuten) oder `MODELS_TO_RUN` auf weniger
-Modelle kürzen.
+7 Minuten; der Random Forest braucht davon am längsten. Zum schnellen
+Ausprobieren `MODELS_TO_RUN` in `main.py` auf weniger Modelle kürzen.
 
 ## Aufbau des Projekts
 
 | Datei | Inhalt |
 | --- | --- |
-| `main.py` | **Hier anfangen.** Alle Einstellungen oben, darunter die sieben Schritte als Funktionen, ganz unten `main()`, die sie nacheinander aufruft. |
-| `dataset.py` | Schritt 1: Daten laden, Charakteristika, Stichprobe |
-| `models.py` | Schritt 2: die vier Modelle und die Fama-MacBeth-Schätzung |
-| `evaluation.py` | Schritte 3–7: Regressionen, Tabellen 2/3/6, Handelsstrategie, Kennzahlen, Zeitverlauf |
-| `report.py` | Ausgabe: Tabellen formatieren, Grafik zeichnen (keine Rechnung) |
+| `main.py` | **Hier anfangen.** Ein Skript, das von oben nach unten läuft: oben die Einstellungen, darunter die sieben Schritte, jeder unter einer eigenen Überschrift. |
+| `models.py` | Die vier Modelle mit ihren Hyperparametern und das Schätzverfahren (Schritt 2) |
+| `util.py` | Werkzeugkasten: Datenaufbereitung, Fama-MacBeth-Regression, Newey-West-Test, Portfolios, Kennzahlen, Grafiken |
 | `output/` | Ergebnisse des Standardlaufs: alle Tabellen als CSV und die Grafiken |
 | `data/jkp_top1000_25y_5y_rank.csv.gz` | Vorbereitete Daten (aus den 6-GB-Rohdaten des Tutors erzeugt) |
 | `Thema 3 - Stock Return Prediction/` | MATLAB-Skripte des Tutors, an denen sich die Datenaufbereitung orientiert |
 | `ssrn-2511246.pdf` | Das Paper |
 
-`main()` liest sich wie das Inhaltsverzeichnis des Verfahrens:
+`main.py` ist durch Überschriften in die sieben Schritte gegliedert, z. B.:
 
 ```python
-def main():
-    check_settings()
-    df, feature_cols, rf = load_sample()                       # Schritt 1
-    preds, importances, best_params = estimate(df, feature_cols)  # Schritt 2
-    fm_table, fm_monthly = paper_regressions(df, feature_cols, preds)  # Schritt 3
-    table3, metrics, correlations = evaluate_forecasts(preds)  # Schritt 4
-    portfolios = portfolio_sorts(preds)                        # Schritt 5
-    strategy, perf = trading_strategy(preds, rf)               # Schritt 6
-    series, trends = time_variation(preds, strategy)           # Schritt 7
+# =============================================================================
+# 4. Güte der Prognosen (Tabelle 3)
+# =============================================================================
 ```
+
+Was in mehreren Schritten oder für jedes Modell gebraucht wird (z. B. die
+Fama-MacBeth-Regression), steht als Funktion in `util.py`; `main.py` ruft sie
+mit `util.…` auf.
 
 > **Lesehilfe Python.** `df` ist eine Tabelle (wie ein Excel-Blatt), `df["me"]`
 > ist eine Spalte daraus. `for x in liste:` wiederholt den eingerückten Block
@@ -122,7 +114,7 @@ und Wechselwirkungen zwischen den Kennzahlen erkennen können?
 
 ## Schritt 1: Daten und Stichprobe
 
-**Code:** `load_sample()` in `main.py`, Funktionen in `dataset.py`
+**Code:** Abschnitt 1 in `main.py`, Liste der Charakteristika in `util.py`
 
 ### Die Daten
 
@@ -147,7 +139,7 @@ Beginn der Renditeperiode noch nicht gab.
 
 ### Die 14 Charakteristika (Lewellens Modell 3)
 
-Festgelegt im Tutor-Skript `b00PrepareDataset.m`, in Python in `dataset.py`:
+Festgelegt im Tutor-Skript `b00PrepareDataset.m`, in Python in `util.py`:
 
 ```python
 JKP_CHARACTERISTICS = [
@@ -200,33 +192,34 @@ auf eine Rangvariable lässt sich direkt lesen: **Renditeunterschied zwischen de
 Aktie mit dem niedrigsten und der mit dem höchsten Wert**.
 
 ```python
-ranks = grouped.rank(method="average")  # gleiche Werte erhalten den mittleren Rang (wie tiedrank)
+ranks = df.groupby("eom")[JKP_CHARACTERISTICS].rank(method="average")  # gleiche Werte: mittlerer Rang
 df[JKP_CHARACTERISTICS] = (ranks - 1) / (ranks.groupby(df["eom"]).transform("max") - 1) - 0.5
 ```
 
-Diese Aufbereitung (`dataset.load_data`) läuft nur einmal auf den 6-GB-Rohdaten
+Diese Aufbereitung (`util.build_prepared_data`) läuft nur einmal auf den 6-GB-Rohdaten
 des Tutors. Das Ergebnis ist die Datei in `data/`, die `main.py` danach direkt lädt.
 
 ### Stichprobe: 500 größte Aktien mit vollständigen Daten
 
 ```python
-def select_sample(df, date_col, size_col, feature_cols, start=None, drop_missing=True, universe_size=None):
-    if start is not None:
-        df = df[df[date_col] >= pd.Timestamp(start)]
-    if drop_missing:
-        df = df.dropna(subset=feature_cols)
-    if universe_size:
-        size_rank = df.groupby(date_col)[size_col].rank(ascending=False, method="first")  # 1 = größte Aktie
-        df = df[size_rank <= universe_size]
-    return df.reset_index(drop=True)
+df = df.sort_values([DATE, ID])
+df = df[df[DATE] >= "1964-01-01"].dropna(subset=[RET, *features])
+size_rank = df.groupby(DATE)[SIZE].rank(ascending=False, method="first")  # 1 = größte Aktie
+df = df[size_rank <= UNIVERSE_SIZE].reset_index(drop=True)
 ```
 
-Drei Filter, Zeile für Zeile:
+`DATE`, `ID`, `RET` und `SIZE` sind Kurznamen für die Spalten `eom`, `id`,
+`ret_exc_lead1m` und `me`. Die Filter, Zeile für Zeile:
 
 1. Nur Monate **ab 1964** (wie im Paper: ab dann gibt es Compustat-Daten).
-2. `dropna`: nur Aktien, für die **alle 14 Kennzahlen** vorliegen (wie im Paper).
-3. In jedem Monat (`groupby(date_col)`) die Aktien nach Marktkapitalisierung
+2. `dropna`: nur Aktien, für die die Rendite und **alle 14 Kennzahlen**
+   vorliegen (wie im Paper).
+3. In jedem Monat (`groupby(DATE)`) die Aktien nach Marktkapitalisierung
    absteigend ranken und nur die **Ränge 1 bis 500** behalten.
+
+Ergebnis: 731 Monate (Januar 1964 bis November 2024) mit je 500 Aktien; nur
+in den ersten 28 Monaten (bis April 1966) sind es 415–499, weil noch nicht
+genug Firmen alle 14 Kennzahlen haben.
 
 Das Universum wird jeden Monat neu bestimmt; eine Aktie kann also hinein- und
 herausfallen. Da die Marktkapitalisierung am Monatsende *t* bekannt ist,
@@ -236,8 +229,7 @@ entsteht dadurch kein Look-ahead-Bias.
 
 ## Schritt 2: Erwartete Renditen schätzen
 
-**Code:** `estimate()` in `main.py`, `run_fama_macbeth()` und
-`average_of_monthly_models()` in `models.py`
+**Code:** Abschnitt 2 in `main.py`, `fama_macbeth_forecast()` in `models.py`
 
 Das ist der Kern der Arbeit. Wir gehen in drei Teilen vor: erst Lewellens
 Verfahren, dann die Übertragung auf Machine Learning, dann der Code.
@@ -338,13 +330,17 @@ Aktie enthält – dann hat er das Rauschen eines Monats auswendig gelernt
 Begrenzen ist daher entscheidend. Das tun die **Hyperparameter**:
 
 ```python
-model_params = {
-    "OLS": {},
-    "DecisionTree": {"max_depth": 5, "min_samples_leaf": 50},
-    "RandomForest": {"n_estimators": 200, "max_depth": 6, "min_samples_leaf": 50,
-                     "max_features": "sqrt", "n_jobs": -1},
-    "XGBoost": {"n_estimators": 200, "max_depth": 3, "learning_rate": 0.05,
-                "subsample": 0.8, "colsample_bytree": 0.8, "n_jobs": -1},
+MODELS = {
+    # Benchmark: die lineare Regression aus dem Paper
+    "OLS": LinearRegression(),
+    # ein einzelner Entscheidungsbaum
+    "DecisionTree": DecisionTreeRegressor(max_depth=5, min_samples_leaf=50, random_state=42),
+    # Mittel vieler unabhängiger Bäume (Bagging)
+    "RandomForest": RandomForestRegressor(n_estimators=200, max_depth=6, min_samples_leaf=50,
+                                          max_features="sqrt", n_jobs=-1, random_state=42),
+    # Bäume nacheinander, jeder korrigiert die Fehler der vorigen (Boosting)
+    "XGBoost": XGBRegressor(n_estimators=200, max_depth=3, learning_rate=0.05,
+                            subsample=0.8, colsample_bytree=0.8, n_jobs=-1, random_state=42),
 }
 ```
 
@@ -357,6 +353,7 @@ model_params = {
 | `learning_rate` | XGBoost: Gewicht, mit dem jeder neue Baum in die Prognose eingeht | 0,05 |
 | `subsample`, `colsample_bytree` | XGBoost: jeder Baum sieht nur 80 % der Aktien bzw. Kennzahlen | 0,8 |
 | `n_jobs = -1` | alle Prozessorkerne nutzen (ändert nichts am Ergebnis) | |
+| `random_state` | Startwert des Zufallsgenerators: jeder Lauf liefert dieselben Zahlen | 42 |
 
 **Random Forest** (Bagging). Ein einzelner Baum ist instabil: Ein paar andere
 Aktien in der Stichprobe, und er stellt ganz andere Fragen. Der Random Forest
@@ -371,36 +368,23 @@ Fehler** (Residuen) der bisherigen Prognose trainiert und mit dem Gewicht
 `learning_rate` (5 %) addiert. Die vielen kleinen Korrekturen (Tiefe nur 3)
 bauen langsam ein feineres Bild auf.
 
-Die Modelle werden in `models.py` angelegt; `random_state` legt den Startwert
-des Zufallsgenerators fest, damit jeder Lauf dieselben Zahlen liefert:
-
-```python
-MODEL_CLASSES = {
-    "OLS": LinearRegression,              # Benchmark: mit run_fama_macbeth genau das Modell aus dem Paper
-    "DecisionTree": DecisionTreeRegressor,  # ein einzelner Entscheidungsbaum
-    "RandomForest": RandomForestRegressor,  # Mittel vieler unabhängiger Bäume (Bagging)
-    "XGBoost": XGBRegressor,              # Bäume nacheinander, jeder korrigiert die Fehler der vorigen (Boosting)
-}
-```
-
 ### 2d) Der Code der Schätzung
 
 Die ganze Logik von 2a und 2b steckt in einer Funktion,
-`average_of_monthly_models()` in `models.py`. Gekürzt auf das Wesentliche:
+`fama_macbeth_forecast()` in `models.py`. Gekürzt auf das Wesentliche:
 
 ```python
 forecast_sum = np.zeros(len(y))  # Summe der Prognosen je Aktie und Monat
 n_models = np.zeros(len(y))      # Anzahl der Monatsmodelle, die diese Prognose enthält
 
-first_model = 0 if expanding else max(first - train_window, 0)
+first_model = max(first - window, 0)
 for j in range(first_model, last):
     # 1. Modell auf dem Querschnitt von Monat j trainieren (ca. 500 Aktien x 14 Charakteristika)
     in_month_j = month_nr == j
     fitted = clone(model).fit(X[in_month_j], y[in_month_j])
 
-    # 2. Damit alle Aktien der Monate j + 1 ... j + train_window prognostizieren
-    last_month = last if expanding else min(j + train_window, last)
-    in_forecast_months = (month_nr > j) & (month_nr >= first) & (month_nr <= last_month)
+    # 2. Damit alle Aktien der Monate j + 1 ... j + window prognostizieren
+    in_forecast_months = (month_nr > j) & (month_nr >= first) & (month_nr <= min(j + window, last))
     forecast_sum[in_forecast_months] += fitted.predict(X[in_forecast_months])
     n_models[in_forecast_months] += 1
 
@@ -427,11 +411,24 @@ Was hier passiert:
 - Am Ende ist `forecast_sum / n_models` der **Mittelwert der Prognosen der
   letzten 120 Monatsmodelle** – für jede Aktie in jedem Monat.
 
-`run_fama_macbeth()` ruft diese Funktion für jedes der vier Modelle auf und
-sammelt die Ergebnisse in einer Tabelle `predictions` mit einer Zeile pro
-(Monat, Aktie): realisierte Rendite plus je eine Prognosespalte `OLS`,
-`DecisionTree`, `RandomForest`, `XGBoost`. Alle folgenden Schritte arbeiten nur
-noch mit dieser Tabelle.
+In `main.py` wird diese Funktion für jedes der vier Modelle aufgerufen:
+
+```python
+for name in MODELS_TO_RUN:
+    forecast, model_importances = models.fama_macbeth_forecast(
+        models.MODELS[name], X, y, month_nr, first, last, TRAIN_WINDOW, name)
+    preds[name] = forecast[is_test_row]
+```
+
+Das Ergebnis ist die Tabelle `preds` mit einer Zeile pro (Monat, Aktie):
+realisierte Rendite plus je eine Prognosespalte `OLS`, `DecisionTree`,
+`RandomForest`, `XGBoost`. Alle folgenden Schritte arbeiten nur noch mit
+dieser Tabelle.
+
+**Minimale Historie:** Vor der ersten Prognose müssen 120 Monate liegen
+(`first = max(TRAIN_WINDOW, …)`). Mit Daten ab Januar 1964 ist Januar 1974 der
+erste Prognosemonat – jede Prognose beruht also auf vollen 120 Monatsmodellen;
+eine Anlaufphase mit kürzeren Fenstern gibt es nicht.
 
 ### 2e) Feature Importance
 
@@ -441,38 +438,11 @@ gesenkt hat (`feature_importances_`). Wir mitteln das über alle Monatsmodelle;
 t-Statistiken der Regression – es zeigt, worauf die Bäume ihre Prognosen
 stützen, aber nicht in welche Richtung.
 
-### 2f) Optional: Hyperparameter jeden Monat neu wählen (Grid Search)
-
-Mit `GRID_SEARCH = True` werden die Hyperparameter nicht fest vorgegeben,
-sondern aus einem Raster gewählt:
-
-```python
-param_grids = {
-    "DecisionTree": {"max_depth": [3, 5, 8], "min_samples_leaf": [20, 50, 100]},
-    "RandomForest": {"max_depth": [3, 6], "max_features": ["sqrt", 0.5]},
-    "XGBoost": {"max_depth": [2, 3, 5], "learning_rate": [0.01, 0.05, 0.1]},
-}
-```
-
-Für jede Kombination (beim Baum 3 × 3 = 9) wird das komplette Verfahren aus 2d
-gerechnet. In jedem Prognosemonat *t* wird dann die Kombination verwendet,
-deren Prognosen in den **12 Monaten vor t** den kleinsten mittleren quadratischen
-Fehler hatten (`choose_params_each_month()` in `models.py`). Auch das nutzt nur
-Daten, die in *t* bekannt sind. Der Lauf dauert entsprechend 4- bis 9-mal so lange.
-
-### 2g) Optional: gepoolte Schätzung
-
-Mit `ESTIMATION = "pooled"` wird statt 120 Monatsmodellen **ein einziges Modell**
-auf allen 120 Querschnitten zusammen trainiert (120 × 500 = 60 000 Zeilen) und
-jeden Monat neu geschätzt (`run_pooled()` in `models.py`). Das ist der übliche
-Ansatz der Machine-Learning-Literatur (z. B. Gu, Kelly & Xiu, 2020): Der Baum hat
-mehr Daten pro Schätzung, weicht aber stärker vom Verfahren des Papers ab.
-
 ---
 
 ## Schritt 3: Fama-MacBeth-Regressionen (Tabelle 2)
 
-**Code:** `paper_regressions()` in `main.py`, `fama_macbeth()` in `evaluation.py`
+**Code:** Abschnitt 3 in `main.py`, `fama_macbeth()` in `util.py`
 
 Zur Einordnung reproduzieren wir Lewellens Tabelle 2: die über alle Monate
 gemittelten Steigungen der Querschnittsregressionen, für unsere Stichprobe.
@@ -481,18 +451,18 @@ gemittelten Steigungen der Querschnittsregressionen, für unsere Stichprobe.
 ```python
 # 1. Querschnittsregression pro Monat
 monthly = []
-for date, g in df.groupby(date_col):
+for date, g in df.groupby(DATE):
     fit = sm.OLS(g[y_col], sm.add_constant(g[x_cols])).fit()
-    monthly.append({date_col: date, **fit.params.rename({"const": "Intercept"}),
+    monthly.append({DATE: date, **fit.params.rename({"const": "Intercept"}),
                     "R2": fit.rsquared, "N": int(fit.nobs)})
 
 # 2. Mittelwert und Newey-West-t-Statistik der monatlichen Koeffizienten
 coefs = monthly.drop(columns=["R2", "N"])
-table = pd.DataFrame([newey_west_test(coefs[c], nw_lags) for c in coefs],
+table = pd.DataFrame([newey_west_test(coefs[c]) for c in coefs],
                      index=coefs.columns, columns=["Coef", "S.E.", "t-stat"])
 ```
 
-1. `df.groupby(date_col)` teilt die Daten in Monate; für jeden Monat `g` wird
+1. `df.groupby(DATE)` teilt die Daten in Monate; für jeden Monat `g` wird
    mit `statsmodels` eine OLS-Regression der Renditen auf die Kennzahlen plus
    Konstante geschätzt und die Koeffizienten werden gespeichert.
 2. Für jede Kennzahl ergibt das eine Zeitreihe von ~600 Steigungen. Deren
@@ -520,14 +490,14 @@ Monat höhere erwartete Rendite als die mit dem niedrigsten.
 
 ## Schritt 4: Wie gut sind die Prognosen? (Tabelle 3)
 
-**Code:** `evaluate_forecasts()` in `main.py`, `forecast_evaluation()` und
-`prediction_metrics()` in `evaluation.py`
+**Code:** Abschnitt 4 in `main.py`, `forecast_evaluation()` und
+`prediction_metrics()` in `util.py`
 
 ### Tabelle 3 wie im Paper
 
 ```python
-dist = preds.groupby(date_col)[pred_col].describe(percentiles=[0.1, 0.9]).mean() * 100
-table, monthly = fama_macbeth(preds, target_col, [pred_col], date_col, nw_lags)
+dist = preds.groupby(DATE)[model].describe(percentiles=[0.1, 0.9]).mean() * 100
+table, monthly = fama_macbeth(preds, RET, [model])
 ```
 
 **Linker Teil – Verteilung der Prognosen** (`dist`): In jedem Monat Mittelwert,
@@ -570,13 +540,13 @@ Modelle (vgl. Lewellens Tabelle 4): Sagen die Bäume etwas anderes als OLS?
 
 ## Schritt 5: Dezilportfolios (Tabelle 6)
 
-**Code:** `portfolio_sorts()` in `main.py`, `sorted_portfolios()` in `evaluation.py`
+**Code:** Abschnitt 5 in `main.py`, `sorted_portfolios()` und `portfolio_returns()` in `util.py`
 
 Jeden Monat werden die Aktien nach ihrer Prognose in **10 gleich große
 Portfolios** sortiert (Dezil 1 = niedrigste Prognose, Dezil 10 = höchste):
 
 ```python
-df["portfolio"] = df.groupby(date_col)[pred_col].transform(
+df["portfolio"] = df.groupby(DATE)[model].transform(
     lambda s: pd.qcut(s.rank(method="first"), n_groups, labels=False) + 1)
 ```
 
@@ -585,7 +555,7 @@ Für jedes Portfolio wird die Rendite im Folgemonat berechnet –
 und zusätzlich das **High-minus-Low-Portfolio H−L** (Dezil 10 long, Dezil 1 short):
 
 ```python
-pred, ret = means[pred_col].unstack(), means[target_col].unstack()  # Monate x Portfolios
+pred, ret = means[model].unstack(), means[RET].unstack()  # Monate x Portfolios
 pred["H-L"] = pred[n_groups] - pred[1]
 ret["H-L"] = ret[n_groups] - ret[1]
 ```
@@ -603,28 +573,20 @@ oder unterschätzen (vgl. die Steigung aus Schritt 4).
 
 ## Schritt 6: Handelsstrategie
 
-**Code:** `trading_strategy()` in `main.py`, `strategy_returns()` und
-`performance_metrics()` in `evaluation.py`
+**Code:** Abschnitt 6 in `main.py`, `strategy_returns()` und
+`performance_metrics()` in `util.py`
 
 Zum Schluss eine einfache, umsetzbare Strategie: **Jeden Monat die 20 % der
-Aktien mit der höchsten Prognose gleichgewichtet kaufen** (`LONG_PCT = 0.20`),
-optional die schlechtesten x % leerverkaufen (`SHORT_PCT`). Benchmark ist das
+Aktien mit der höchsten Prognose gleichgewichtet kaufen** (`LONG_PCT = 0.20`).
+Benchmark ist das
 gleichgewichtete Portfolio aller 500 Aktien ("Equal Weight").
 
 ```python
-for date, g in preds.groupby(date_col):
+for date, g in preds.groupby(DATE):
     # realisierte Renditen, sortiert von der höchsten zur niedrigsten Prognose
-    realised = g.sort_values(pred_col, ascending=False, kind="stable")[target_col]
-    n = len(realised)
-
-    ret = 0.0
-    if long_pct > 0:
-        n_long = max(1, int(round(n * long_pct)))  # mindestens 1 Aktie
-        ret += realised.iloc[:n_long].mean()
-    if short_pct > 0:
-        n_short = max(1, int(round(n * short_pct)))
-        ret -= realised.iloc[-n_short:].mean()
-    returns[date] = ret
+    realised = g.sort_values(model, ascending=False, kind="stable")[RET]
+    n_long = max(1, int(round(len(realised) * long_pct)))  # mindestens 1 Aktie
+    returns[date] = realised.iloc[:n_long].mean()
 ```
 
 Für jeden Monat: Aktien nach Prognose sortieren, die ersten 20 % (`iloc[:n_long]`)
@@ -635,9 +597,9 @@ Daraus die Kennzahlen:
 ```python
 wealth = (1 + returns).cumprod()
 ...
-"Ann. Return": wealth.iloc[-1] ** (periods_per_year / len(returns)) - 1,
-"Ann. Volatility": returns.std() * np.sqrt(periods_per_year),
-"Sharpe Ratio": excess.mean() / excess.std() * np.sqrt(periods_per_year),
+"Ann. Return": wealth.iloc[-1] ** (12 / len(returns)) - 1,   # geometrisch (CAGR)
+"Ann. Volatility": returns.std() * np.sqrt(12),
+"Sharpe Ratio": returns.mean() / returns.std() * np.sqrt(12),
 "Max Drawdown": (wealth / peak - 1).min(),
 ```
 
@@ -649,7 +611,8 @@ wealth = (1 + returns).cumprod()
 | Max Drawdown | größter prozentualer Verlust vom bisherigen Höchststand |
 
 Die Grafik `output/performance.png` zeigt die Wertentwicklung von 1 investierten
-Dollar je Modell gegen Equal Weight.
+Dollar je Modell gegen Equal Weight (logarithmische Skala: gleiche prozentuale
+Rendite ergibt gleiche Steigung).
 
 Hinweis: Transaktionskosten sind nicht berücksichtigt; da jeden Monat neu
 sortiert wird, kann der Umschlag hoch sein.
@@ -658,8 +621,7 @@ sortiert wird, kann der Umschlag hoch sein.
 
 ## Schritt 7: Entwicklung über die Zeit (Fig. 2)
 
-**Code:** `time_variation()` und `plot_time_variation()` in `main.py`,
-`monthly_slopes()`, `portfolio_returns()` und `trend_test()` in `evaluation.py`
+**Code:** Abschnitt 7 in `main.py`, `trend_test()` und `plot_time_variation()` in `util.py`
 
 Die Tabellen 3 und 6 zeigen Durchschnitte über 40 Jahre. Sie sagen nicht, ob
 die Prognosen **immer** gleich gut waren oder ob ihre Güte mit der Zeit
@@ -672,10 +634,9 @@ verschwinden (McLean & Pontiff, 2016).
 ```python
 series = {
     "Predictive slope": pd.DataFrame(
-        {name: evaluation.monthly_slopes(preds, name, TARGET_COL, DATE_COL) for name in MODELS_TO_RUN}),
+        {name: util.fama_macbeth(preds, RET, [name])[1][name] for name in MODELS_TO_RUN}),
     "H-L return EW (%)": pd.DataFrame(
-        {name: evaluation.portfolio_returns(preds, name, TARGET_COL, DATE_COL, None, n_portfolios)[1]["H-L"]
-         for name in MODELS_TO_RUN}) * 100,
+        {name: util.portfolio_returns(preds, name)[1]["H-L"] for name in MODELS_TO_RUN}) * 100,
     "Strategy minus Equal Weight (%)": strategy[MODELS_TO_RUN].sub(strategy["Equal Weight"], axis=0) * 100,
 }
 ```
@@ -880,9 +841,8 @@ US-Aktien seit 2009 keine Überrendite gegenüber Equal Weight erzielen.*
 Ein Ergebnis nahe null mit kleinen t-Statistiken heißt auch: Ein kleiner
 Vorteil lässt sich mit 11 Jahren Daten weder nachweisen noch ausschließen.
 
-Mögliche Ansatzpunkte für die Arbeit: Grid Search (`GRID_SEARCH = True`), die
-gepoolte Schätzung (`ESTIMATION = "pooled"`), die mehr Daten pro Baum hat,
-sowie Modell 1 und 2 im Vergleich.
+Mögliche Ansatzpunkte für die Arbeit: andere Hyperparameter in `models.py`
+sowie Lewellens Modell 1 und 2 im Vergleich (`FEATURE_SET`).
 
 ---
 
@@ -892,13 +852,12 @@ sowie Modell 1 und 2 im Vergleich.
 
 | Paper | Hier | Code |
 | --- | --- | --- |
-| Monatliche Querschnittsregressionen der Renditen auf die Kennzahlen des Vormonats (Fama-MacBeth) | gleich | `evaluation.fama_macbeth` |
-| Prognose = Kennzahlen zu Monatsbeginn × Mittel der Achsenabschnitte und Steigungen der **vorherigen 120 Monate** | gleich; für die Bäume: Mittel der Prognosen der 120 vorherigen Monatsmodelle (für OLS rechnerisch identisch, siehe 2b) | `models.average_of_monthly_models` |
+| Monatliche Querschnittsregressionen der Renditen auf die Kennzahlen des Vormonats (Fama-MacBeth) | gleich | `util.fama_macbeth` |
+| Prognose = Kennzahlen zu Monatsbeginn × Mittel der Achsenabschnitte und Steigungen der **vorherigen 120 Monate** | gleich; für die Bäume: Mittel der Prognosen der 120 vorherigen Monatsmodelle (für OLS rechnerisch identisch, siehe 2b) | `models.fama_macbeth_forecast` |
 | Erste Regressionen 1964, erste Prognose 1974 | gleich (Daten ab Januar 1964, erster Prognosemonat Januar 1974 mit vollen 120 Monaten Historie) | `TEST_START` |
-| Alternative: kumulierter Mittelwert seit 1964 | `WINDOW_TYPE = "expanding"` | |
-| Tabelle 2: mittlere Steigungen, t-Statistik mit Newey-West (4 Lags) | gleich | `paper_regressions` |
-| Tabelle 3: Verteilung der Prognosen (Avg, Std, p10, p90 im Querschnitt, über die Monate gemittelt) und Out-of-Sample-FM-Regression der Renditen auf die Prognose (Slope, S.E., t, R²) | gleich | `evaluation.forecast_evaluation` |
-| Tabelle 6: Dezile nach Prognose, gleich- und wertgewichtet (Marktwert zu Monatsbeginn), Pred/Avg/Std/Sharpe/t, H−L | gleich | `evaluation.sorted_portfolios` |
+| Tabelle 2: mittlere Steigungen, t-Statistik mit Newey-West (4 Lags) | gleich | Abschnitt 3 in `main.py` |
+| Tabelle 3: Verteilung der Prognosen (Avg, Std, p10, p90 im Querschnitt, über die Monate gemittelt) und Out-of-Sample-FM-Regression der Renditen auf die Prognose (Slope, S.E., t, R²) | gleich | `util.forecast_evaluation` |
+| Tabelle 6: Dezile nach Prognose, gleich- und wertgewichtet (Marktwert zu Monatsbeginn), Pred/Avg/Std/Sharpe/t, H−L | gleich | `util.sorted_portfolios` |
 | Fig. 2: Prognose-Steigung und H−L-Rendite als gleitender 10-Jahres-Mittelwert | gleich, zusätzlich 12 Monate und ein Trendtest | Schritt 7 |
 
 **Bewusste Abweichungen** (Vorgaben der Aufgabe bzw. der Daten):
@@ -912,6 +871,7 @@ sowie Modell 1 und 2 im Vergleich.
 | Rendite | Rendite | Überrendite über den risikofreien Zins (verschiebt nur das Niveau, nicht die Querschnittsunterschiede) |
 | Modell 3 | 15 Variablen | 14 Variablen (eine Emissionsvariable statt zwei) |
 | Zeitraum | Schätzung ab 1964, Prognosen 1974–2013 | gleich (einstellbar bis 2024) |
+| Weitere Varianten im Paper | kumulierter Mittelwert seit 1964, Fenster von 1, 3, 5 Jahren | nur das 10-Jahres-Fenster (Hauptergebnis des Papers); kürzere Fenster über `TRAIN_WINDOW` |
 
 ---
 
@@ -923,17 +883,16 @@ Alle wichtigen Einstellungen stehen oben in `main.py`:
 | --- | --- | --- |
 | `FEATURE_SET` | `"Model 3"` | Lewellens Modell 1, 2 oder 3 |
 | `UNIVERSE_SIZE` | `500` | Anzahl der größten Aktien pro Monat (max. 1000) |
-| `ESTIMATION` | `"fama_macbeth"` | `"fama_macbeth"` (wie Paper) oder `"pooled"` (2g) |
-| `WINDOW_TYPE` | `"rolling"` | `"rolling"` (letzte 10 Jahre) oder `"expanding"` (alle Jahre seit 1964, im Paper "cumulative") |
-| `TRAIN_WINDOW` | `120` | Fensterlänge in Monaten |
-| `TEST_START`, `TEST_END` | 1974–2013 | Prognosezeitraum |
+| `TRAIN_WINDOW` | `120` | Fensterlänge in Monaten (zugleich die Mindesthistorie vor der ersten Prognose) |
+| `TEST_START`, `TEST_END` | 1974–2013 | Prognosezeitraum (`TEST_END = None`: bis 2024) |
 | `MODELS_TO_RUN` | alle vier | Liste der Modelle |
-| `GRID_SEARCH` | `False` | Hyperparameter monatlich wählen (2f) |
-| `LONG_PCT`, `SHORT_PCT` | `0.20`, `0.0` | Strategie aus Schritt 6 |
+| `LONG_PCT` | `0.20` | Strategie aus Schritt 6 |
 | `ROLLING_MONTHS` | `12` | gleitender Mittelwert in Schritt 7 (die 120-Monats-Grafik entsteht immer) |
-| `USE_DUMMY_DATA` | `False` | Zufallsdaten zum Testen |
 
-Die Hyperparameter der Modelle stehen in `estimate()` in `main.py`.
+Die Hyperparameter der Modelle stehen in `MODELS` in `models.py`. Für einen
+zweiten Lauf, der den Hauptlauf nicht überschreiben soll, `OUTPUT_DIR` in
+`main.py` auf einen anderen Ordner setzen (so ist `output/test_until_2024/`
+entstanden).
 
 ### Ausgabedateien in `output/`
 
