@@ -50,16 +50,19 @@ LEWELLEN_MODELS = {
 # Daten
 # =============================================================================
 
-def build_prepared_data(raw_path, prepared_path, top_k=1000, years_before=25, years_after=5):
+def build_prepared_data(raw_path, prepared_path, universe="top1000", top_k=1000, years_before=25, years_after=5):
     """Erzeugt aus den JKP-Rohdaten (USA.parquet, 6 GB) die kleine CSV in data/.
 
     Wird nur gebraucht, wenn die CSV fehlt. Analog zu b00PrepareDataset.m und b01LoadDataset.m:
     1. Nur die benötigten Spalten lesen (plus `me` als untransformierte Marktkapitalisierung)
     2. Zeilen ohne Rendite oder Marktkapitalisierung sowie nano/micro Stocks entfernen
+       (übrig bleiben Lewellens "all-but-tiny stocks": größer als das 20. NYSE-Perzentil)
     3. Charakteristika pro Monat in Ränge umrechnen, skaliert auf [-0.5, 0.5] (wie fCrossSectTransChars.m)
-    4. Nur Aktien behalten, die irgendwann zu den `top_k` größten gehören, und von
-       diesen die Daten der `years_before` Jahre davor und der `years_after` Jahre
-       danach - das macht die Datei klein genug für Git
+    4. Aktienuniversum, je nach `universe`:
+       "top1000": nur Aktien, die irgendwann zu den `top_k` größten gehören, und von
+                  diesen die Daten der `years_before` Jahre davor und der `years_after`
+                  Jahre danach - das macht die Datei klein genug für Git
+       "large":   Lewellens "large stocks": größer als der NYSE-Median, ab 1964
     """
     # 1. Spalten lesen
     df = pd.read_parquet(raw_path, columns=["id", "eom", "size_grp", "ret_exc_lead1m", "me",
@@ -67,15 +70,25 @@ def build_prepared_data(raw_path, prepared_path, top_k=1000, years_before=25, ye
 
     # 2. Zeilen filtern, Datum umwandeln
     df = df[df["ret_exc_lead1m"].notna() & df["me"].notna() & ~df["size_grp"].isin(["nano", "micro"])]
-    df = df.drop(columns="size_grp")
     df["eom"] = pd.to_datetime(df["eom"].astype(str), format="%Y%m%d")
 
     # 3. Rangtransformation pro Monat (fehlende Werte bleiben fehlend)
     ranks = df.groupby("eom")[JKP_CHARACTERISTICS].rank(method="average")  # gleiche Werte: mittlerer Rang
     df[JKP_CHARACTERISTICS] = (ranks - 1) / (ranks.groupby(df["eom"]).transform("max") - 1) - 0.5
 
-    # 4. Aktien behalten, die in einem Monat t zu den `top_k` größten gehören:
-    #    alle ihre Zeilen von t - months_before bis t + months_after Monaten
+    # 4a. Lewellens "large stocks": JKP teilt die Aktien jeden Monat nach NYSE-Breakpoints der
+    #     Marktkapitalisierung ein (size_grp): nano < 1 %, micro 1-20 %, small 20-50 %, large 50-80 %,
+    #     mega > 80 %. Größer als der NYSE-Median sind also genau "large" und "mega".
+    if universe == "large":
+        df = df[df["size_grp"].isin(["large", "mega"]) & (df["eom"] >= "1964-01-01")]
+        df = df.drop(columns="size_grp")
+        os.makedirs(os.path.dirname(prepared_path), exist_ok=True)
+        df.sort_values(["eom", "id"]).to_csv(prepared_path, index=False, float_format="%.6g")
+        return
+    df = df.drop(columns="size_grp")
+
+    # 4b. Aktien behalten, die in einem Monat t zu den `top_k` größten gehören:
+    #     alle ihre Zeilen von t - months_before bis t + months_after Monaten
     months_before, months_after = 12 * years_before, 12 * years_after
     month = (df["eom"].dt.year * 12 + df["eom"].dt.month).to_numpy()  # fortlaufender Monatsindex
     is_top = (df.groupby("eom")["me"].rank(ascending=False, method="first") <= top_k).to_numpy()

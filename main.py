@@ -4,7 +4,7 @@ Masterprojekt - Prognose von Aktienrenditen mit baumbasierten Modellen.
 Replikation von Lewellen (2015), "The Cross-Section of Expected Stock Returns",
 mit Machine-Learning-Modellen anstelle der linearen Regression. Das Skript läuft
 von oben nach unten durch:
-    1. Daten: pro Monat die 500 größten Aktien mit Werten für alle Charakteristika
+    1. Daten: pro Monat die 500 größten Aktien (oder alle "large stocks") mit Werten für alle Charakteristika
     2. Schätzung: in jedem Monat ein Modell auf dem Querschnitt trainieren; die
        erwartete Rendite ist das Mittel der Prognosen der Monatsmodelle der
        letzten 10 Jahre (für OLS genau das Verfahren des Papers)
@@ -37,7 +37,10 @@ from util import DATE, ID, RET, SIZE  # Spaltennamen: Monatsende, Aktie, Rendite
 
 FEATURE_SET = "Model 3"      # Prädiktoren nach Lewellen (2015): "Model 1" (Größe, B/M, Momentum),
                              # "Model 2" (+ Emissionen, Accruals, Profitabilität, Asset Growth), "Model 3" (alle 14)
-UNIVERSE_SIZE = 500          # pro Monat nur die 500 größten Aktien (max. 1000)
+UNIVERSE = "top500"          # "top500": pro Monat die UNIVERSE_SIZE größten Aktien
+                             # "large": alle Aktien über dem NYSE-Median (Lewellens "large stocks", Tabelle 3
+                             #   Panel C, ca. 700-1.000 pro Monat); braucht beim ersten Mal die JKP-Rohdaten
+UNIVERSE_SIZE = 500          # nur "top500": Anzahl der größten Aktien pro Monat (max. 1000)
 ESTIMATION = "single"        # "single": ein Modell pro Monat, Prognose = Mittel der Monatsmodelle (Lewellen,
                              #   Fama-MacBeth); "stacked": ein Modell auf allen gestapelten Monaten des
                              #   Fensters (Gu, Kelly & Xiu)
@@ -57,7 +60,7 @@ ROLLING_MONTHS = 12          # Schritt 7: gleitender Mittelwert (zusätzlich imm
 #   predicted_return/       Auswertung der Renditeprognosen wie im Paper (Tabellen 2, 3, 6, Strategie, Zeitverlauf)
 #   investor_disagreement/  dieselbe Auswertung für die Disagreement der Investoren (Schritt 8)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = os.path.join(BASE_DIR, "output", ESTIMATION)
+OUTPUT_DIR = os.path.join(BASE_DIR, "output", ESTIMATION if UNIVERSE == "top500" else f"{ESTIMATION}_{UNIVERSE}")
 PRED_DIR = os.path.join(OUTPUT_DIR, "predicted_return")
 MFD_DIR = os.path.join(OUTPUT_DIR, "investor_disagreement")
 for folder in [PRED_DIR, MFD_DIR]:
@@ -70,21 +73,27 @@ for folder in [PRED_DIR, MFD_DIR]:
 util.print_section("1. Data")
 
 # Vorbereitete Daten (eine Zeile pro Monat und Aktie, Charakteristika bereits in Ränge umgerechnet).
-# Fehlt die Datei, wird sie einmalig aus den 6-GB-Rohdaten des Tutors erzeugt.
-prepared_path = os.path.join(BASE_DIR, "data", "jkp_top1000_25y_5y_rank.csv.gz")
+# Fehlt die Datei, wird sie einmalig aus den 6-GB-Rohdaten des Tutors erzeugt
+# (Thema 3 - Stock Return Prediction/DATA/USA.parquet, nicht im Repository).
+prepared_file = {"top500": "jkp_top1000_25y_5y_rank.csv.gz", "large": "jkp_large_rank.csv.gz"}[UNIVERSE]
+prepared_path = os.path.join(BASE_DIR, "data", prepared_file)
 if not os.path.exists(prepared_path):
-    print("  Building prepared data from the raw JKP data (about 1 minute) ...")
-    util.build_prepared_data(os.path.join(BASE_DIR, "Thema 3 - Stock Return Prediction", "DATA", "USA.parquet"),
-                             prepared_path)
+    raw_path = os.path.join(BASE_DIR, "Thema 3 - Stock Return Prediction", "DATA", "USA.parquet")
+    if not os.path.exists(raw_path):
+        raise FileNotFoundError(f"'{prepared_file}' is missing; to build it, put the raw JKP data at '{raw_path}'")
+    print(f"  Building '{prepared_file}' from the raw JKP data (a few minutes) ...")
+    util.build_prepared_data(raw_path, prepared_path, universe="large" if UNIVERSE == "large" else "top1000")
 df = pd.read_csv(prepared_path, parse_dates=[DATE])
 features = util.LEWELLEN_MODELS[FEATURE_SET]
 
 # Stichprobe wie im Paper: ab 1964, nur Aktien mit Rendite und allen Charakteristika,
-# davon pro Monat die 500 größten nach Marktkapitalisierung
+# bei "top500" davon pro Monat die 500 größten nach Marktkapitalisierung
 df = df.sort_values([DATE, ID])
 df = df[df[DATE] >= "1964-01-01"].dropna(subset=[RET, *features])
-size_rank = df.groupby(DATE)[SIZE].rank(ascending=False, method="first")  # 1 = größte Aktie
-df = df[size_rank <= UNIVERSE_SIZE].reset_index(drop=True)
+if UNIVERSE == "top500":
+    size_rank = df.groupby(DATE)[SIZE].rank(ascending=False, method="first")  # 1 = größte Aktie
+    df = df[size_rank <= UNIVERSE_SIZE]
+df = df.reset_index(drop=True)
 print(f"  {len(df):,} rows | {df[ID].nunique():,} stocks | {df[DATE].nunique()} months "
       f"({df[DATE].min():%Y-%m} - {df[DATE].max():%Y-%m}) | {len(features)} characteristics ({FEATURE_SET})")
 
@@ -244,7 +253,8 @@ results = {
 for filename, table in results.items():
     table.to_csv(os.path.join(PRED_DIR, filename))
 
-period = f"{preds[DATE].min():%Y} - {preds[DATE].max():%Y}, top {UNIVERSE_SIZE} stocks, {ESTIMATION}, {WINDOW_TYPE}"
+universe_label = f"top {UNIVERSE_SIZE} stocks" if UNIVERSE == "top500" else f"{UNIVERSE} stocks"
+period = f"{preds[DATE].min():%Y} - {preds[DATE].max():%Y}, {universe_label}, {ESTIMATION}, {WINDOW_TYPE}"
 for label in STRATEGIES:  # eine Grafik pro Strategie: alle Modelle und Equal Weight
     util.plot_performance(strategy[label].assign(**{"Equal Weight": equal_weight}),
                           f"{label} by predicted return vs. equal weight ({period})",

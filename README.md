@@ -1310,7 +1310,8 @@ Alle wichtigen Einstellungen stehen oben in `main.py`:
 | Einstellung | Standard | Bedeutung |
 | --- | --- | --- |
 | `FEATURE_SET` | `"Model 3"` | Lewellens Modell 1, 2 oder 3 |
-| `UNIVERSE_SIZE` | `500` | Anzahl der größten Aktien pro Monat (max. 1000) |
+| `UNIVERSE` | `"top500"` | `"top500"`: die 500 größten Aktien pro Monat; `"large"`: alle Aktien über dem NYSE-Median wie Lewellens "large stocks" (siehe unten) |
+| `UNIVERSE_SIZE` | `500` | nur `"top500"`: Anzahl der größten Aktien pro Monat (max. 1000) |
 | `ESTIMATION` | `"single"` | `"single"` (Mittel der Monatsmodelle, wie Lewellen) oder `"stacked"` (ein Modell auf gestapelten Daten, wie Gu, Kelly & Xiu), siehe 2h |
 | `WINDOW_TYPE` | `"rolling"` | `"rolling"` (letzte 10 Jahre) oder `"expanding"` (alle Jahre seit 1964), siehe 2g |
 | `TRAIN_WINDOW` | `120` | Fensterlänge in Monaten (zugleich die Mindesthistorie vor der ersten Prognose) |
@@ -1324,6 +1325,41 @@ Die Hyperparameter der Modelle stehen in `MODELS` in `models.py`. Die
 Ergebnisse landen in `output/<ESTIMATION>`; für einen weiteren Lauf, der
 diese nicht überschreiben soll, `OUTPUT_DIR` in `main.py` auf einen anderen
 Ordner setzen (so ist `output/single_until_2024/` entstanden).
+
+### Lewellens "large stocks" (`UNIVERSE = "large"`)
+
+Mit `UNIVERSE = "large"` nutzt das Skript statt der 500 größten Aktien **alle
+Aktien, die größer als der NYSE-Median sind** – genau Lewellens Gruppe
+"large stocks" (Tabelle 3 und 6, Panel C, im Mittel 728 Aktien mit
+vollständigen Daten). JKP liefert dafür die Größengruppe `size_grp`, die
+jeden Monat nach NYSE-Breakpoints der Marktkapitalisierung gebildet wird:
+
+| `size_grp` | NYSE-Perzentil | Lewellen |
+| --- | --- | --- |
+| nano | < 1 % | |
+| micro | 1–20 % | "tiny" (im Tutor-Skript entfernt) |
+| small | 20–50 % | all-but-tiny |
+| large | 50–80 % | all-but-tiny, **large** |
+| mega | > 80 % | all-but-tiny, **large** |
+
+```python
+if universe == "large":
+    df = df[df["size_grp"].isin(["large", "mega"]) & (df["eom"] >= "1964-01-01")]
+```
+
+Die vorbereitete CSV dafür (`data/jkp_large_rank.csv.gz`) wird beim ersten
+Lauf aus den JKP-Rohdaten erzeugt; diese sind nicht im Repository. Einmalig:
+
+1. `USA.parquet` vom Tutor nach `Thema 3 - Stock Return Prediction/DATA/USA.parquet` legen.
+2. In `main.py` `UNIVERSE = "large"` setzen und `python main.py` starten
+   (das Erzeugen der CSV dauert einige Minuten, der Lauf etwa doppelt so lange
+   wie mit 500 Aktien).
+3. `data/jkp_large_rank.csv.gz` committen – danach braucht niemand mehr die
+   Rohdaten.
+
+Die Ergebnisse landen in `output/single_large/` (bzw. `output/stacked_large/`).
+Die Ränge der Kennzahlen werden wie bisher unter allen "all-but-tiny"-Aktien
+gebildet und erst danach auf die großen Aktien eingeschränkt.
 
 ### Ausgabedateien in `output/`
 
