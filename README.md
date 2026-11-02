@@ -34,6 +34,7 @@ Finance-Hintergrund geschrieben; Programmierkenntnisse sind nicht nötig.
 - [Schritt 7: Entwicklung über die Zeit (Fig. 2)](#schritt-7-entwicklung-über-die-zeit-fig-2)
 - [Schritt 8: Machine Forecast Disagreement](#schritt-8-machine-forecast-disagreement)
 - [Ergebnisse](#ergebnisse)
+- [Vergleich mit den Papern](#vergleich-mit-den-papern)
 - [Abgleich mit dem Paper](#abgleich-mit-dem-paper)
 - [Einstellungen ändern](#einstellungen-ändern)
 - [Glossar](#glossar)
@@ -957,9 +958,17 @@ Beobachtungen, die sich direkt aus den Zahlen ablesen lassen:
 - In dieser Einstellung liefert **OLS** die höchste H−L-Rendite, den höchsten
   IC und die besten Strategien; **XGBoost** kommt am nächsten heran.
 - **Long- und Short-Seite tragen etwa gleich viel bei.** Die Short-Strategie
-  allein verliert Geld (−6 bis −8 % p. a.), weil Aktien im Schnitt steigen –
-  aber weniger als der Markt gewinnt: Die leerverkauften Aktien sind
-  tatsächlich schlechter als der Durchschnitt.
+  allein verliert trotzdem deutlich Geld (−6 bis −8 % p. a., Max Drawdown
+  über −95 %). Das ist kein Fehler, sondern zu erwarten: Bei OLS bringen die
+  leerverkauften Aktien im Schnitt +0,32 % pro Monat – weniger als der Markt
+  (+0,69 %), aber eben positiv. Wer sie leerverkauft, verliert diese
+  0,32 % pro Monat (−3,9 % p. a.). Dazu kommt der Volatilitätsabschlag
+  (Volatilität 22 %, geometrisch etwa −σ²/2 ≈ −2,4 Prozentpunkte p. a.), und
+  der Markt hat sich 1974–2013 verfünfzehnfacht. Eine reine Short-Position
+  auf Aktien verliert also langfristig fast immer; ihr Wert liegt im
+  Long-Short-Portfolio, wo sie den Markt absichert. Gemessen am Markt
+  funktioniert die Short-Seite: Die leerverkauften Aktien sind im Schnitt
+  0,36 % pro Monat schlechter als Equal Weight (t = 2,58).
 - Der **Random Forest** prognostiziert sehr vorsichtig (Streuung 0,15 % statt
   0,41 %): Das Mitteln über 200 Bäume *und* über 120 Monatsmodelle glättet
   die Prognosen stark. Die Steigung ist deshalb nahe an der Idealrichtung,
@@ -1157,6 +1166,110 @@ höchsten Disagreement. Long-Seite und Short-Seite wie oben in % pro Monat.
 
 Mögliche Ansatzpunkte für die Arbeit: andere Hyperparameter in `models.py`
 sowie Lewellens Modell 1 und 2 im Vergleich (`FEATURE_SET`).
+
+---
+
+## Vergleich mit den Papern
+
+### Lewellen (2015): Replikation gelungen
+
+Vergleichsgruppe bei Lewellen ist Panel C, **"Large stocks"** (größer als der
+NYSE-Median, im Mittel 728 Aktien), Modell 3, 10-Jahres-Fenster. Bei uns:
+OLS im Modus `single`, 1974–2013, 500 größte Aktien.
+
+**Tabelle 2 – Fama-MacBeth-Regressionen.** Die Höhe der Koeffizienten ist
+nicht vergleichbar (wir nutzen Ränge statt Rohwerten), Vorzeichen und
+Signifikanz aber schon:
+
+| Kennzahl | Lewellen, große Aktien (t) | Hier (t) |
+| --- | --- | --- |
+| Größe | −3,84 | −2,10 |
+| B/M | +2,31 | +3,33 |
+| Momentum | +5,05 | +4,49 |
+| Emissionen | −3,23 | −3,62 |
+| Accruals | −3,75 | −4,70 |
+| Profitabilität (ROA) | +2,89 | +2,78 |
+| Asset Growth | −0,82 | +0,22 |
+| Beta | +1,73 | +0,43 |
+| Volatilität | **−3,76** | −1,21 |
+| Dividende, Langfristrendite, Turnover, Verschuldung, Umsatz/Preis | nicht signifikant | nicht signifikant |
+| mittleres R² | 0,147 | 0,152 |
+
+Einzige echte Abweichung: Die Volatilität ist bei Lewellen klar signifikant
+negativ, bei uns nur schwach.
+
+**Tabelle 3 – Prognosegüte**
+
+| | Lewellen | Hier |
+| --- | --- | --- |
+| Mittel der Prognosen | 1,02 % | 0,59 % |
+| Streuung der Prognosen | 0,53 % | 0,41 % |
+| **Steigung (t)** | **0,44 (3,64)** | **0,42 (2,28)** |
+| R² | 0,020 | 0,025 |
+
+Die Steigung ist praktisch identisch. Das niedrigere Mittel kommt von den
+Überrenditen (der risikofreie Zins lag 1974–2013 bei etwa 0,4 % pro Monat).
+
+**Tabelle 6 – Dezilportfolios** (H−L in % pro Monat)
+
+| | Lewellen: prognostiziert / realisiert (t) | Hier: prognostiziert / realisiert (t) |
+| --- | --- | --- |
+| gleichgewichtet | 1,87 / 1,00 (3,70) | 1,43 / 0,71 (2,56) |
+| wertgewichtet | 1,80 / 0,93 (3,25) | 1,41 / 0,78 (2,71) |
+
+Verhältnis realisiert zu prognostiziert: 0,53 bei Lewellen, 0,50 hier. In
+beiden Fällen übertreiben die Prognosen die Unterschiede um etwa den Faktor
+2, und die realisierten Renditen steigen fast monoton von Low nach High.
+
+**Fig. 2 / Abschnitt 3.6 – Zeitverlauf.** Dasselbe Muster: bis 2008 stabil,
+dann ein Einbruch. Mittlere Steigung der letzten 10 Jahre (2004–2013): −0,37
+bei Lewellen (große Aktien), −0,05 hier für OLS, −0,3 bis −1,1 für die
+Bäume. Darüber hinaus zeigen unsere Daten bis 2024, dass sich die
+Prognosekraft danach **nicht erholt** hat, und dass der Rückgang vor allem
+von der Short-Seite kommt.
+
+### Gu, Kelly & Xiu (2020): qualitativ bestätigt – aber nur mit gestapelten Daten
+
+GKX finden, dass Bäume die lineare Regression schlagen, weil sie
+nichtlineare Wechselwirkungen erfassen. Das zeigt sich hier auch, aber nur
+im Modus `stacked` – also auf dem Weg, den GKX gehen (ein Modell auf dem
+ganzen Fenster):
+
+| H−L EW in % pro Monat (t) | `single` | `stacked` |
+| --- | --- | --- |
+| OLS | 0,71 (2,56) | 0,64 (2,38) |
+| Random Forest | 0,37 (1,22) | 0,74 (2,99) |
+| XGBoost | 0,58 (2,27) | 0,70 (3,07) |
+
+Im Modus `single` verlieren die Bäume gegen OLS – ein Baum auf den 500
+Aktien eines einzigen Monats ist zu verrauscht. Die Größenordnung der
+Gewinne bei GKX ist nicht vergleichbar: Sie nutzen alle Aktien, 94
+Kennzahlen und neuronale Netze, und ein großer Teil ihrer Gewinne entsteht
+bei kleinen Aktien.
+
+### Bali, Kelly, Mörke & Rahman (2026): nicht repliziert
+
+| | Paper | Hier |
+| --- | --- | --- |
+| Spread geringste minus höchste Disagreement, wertgewichtet | ≈ 1,09 % pro Monat (13 % p. a., t = 4,32) | 0,10 % (t = 0,36) `single`, −0,18 % (t = −0,59) `stacked` |
+| Effekt auf der Short-Seite | hohe Disagreement klar überbewertet | Short-Seite ≈ 0 |
+| Disagreement hängt mit der Volatilität zusammen | ja | ja, deutlich |
+
+Repliziert ist nur der Zusammenhang mit der Volatilität. Die naheliegende
+Erklärung liefert das Paper selbst: Der Effekt entsteht durch teure
+Leerverkäufe; bei Aktien mit den niedrigsten Leihgebühren findet es nur
+−0,12 % pro Monat. Die 500 größten US-Aktien sind genau diese Gruppe. Dazu
+kommen 14 statt 153 Kennzahlen und ein Baum statt eines Random Forest pro
+Investor.
+
+### Fazit
+
+Die Replikation von Lewellen mit OLS gelingt in den Kernaussagen (Steigung,
+Verhältnis von realisiertem zu prognostiziertem Spread, Zeitverlauf).
+Entscheidungsbäume verbessern die Prognosen nur, wenn sie auf gestapelten
+Daten trainiert werden. Der Disagreement-Effekt ist unter großen, leicht
+leerverkaufbaren Aktien nicht vorhanden – was zu dem Mechanismus passt, den
+das Paper selbst vorschlägt.
 
 ---
 
