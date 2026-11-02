@@ -55,8 +55,8 @@ Schritte nacheinander und schreibt die Tabellen in die Konsole. Ergebnisse
 (CSV-Dateien und Grafiken) landen im Ordner `output/`. Die Ergebnisse des
 Standardlaufs liegen dort bereits im Repository – man muss das Skript also
 nicht laufen lassen, um sie anzusehen. Ein kompletter Lauf
-mit allen vier Modellen dauert auf einem Rechner mit 4 Kernen etwa
-7 Minuten; der Random Forest braucht davon am längsten. Zum schnellen
+mit allen fünf Modellen dauert auf einem Rechner mit 4 Kernen etwa
+13 Minuten (`"stacked"`: etwa 16 Minuten). Zum schnellen
 Ausprobieren `MODELS_TO_RUN` in `main.py` auf weniger Modelle kürzen.
 
 ## Aufbau des Projekts
@@ -376,18 +376,19 @@ Die ganze Logik von 2a und 2b steckt in einer Funktion,
 `fama_macbeth_forecast()` in `models.py`. Gekürzt auf das Wesentliche:
 
 ```python
-forecast_sum = np.zeros(len(y))  # Summe der Prognosen je Aktie und Monat
-n_models = np.zeros(len(y))      # Anzahl der Monatsmodelle, die diese Prognose enthält
+forecast_sum = empty_forecast(model, len(y))  # Summe der Prognosen je Aktie und Monat
+n_models = np.zeros(len(y))                   # Anzahl der Monatsmodelle, die diese Prognose enthält
 
-first_model = max(first - window, 0)
+first_model = 0 if expanding else max(first - window, 0)
 for j in range(first_model, last):
     # 1. Modell auf dem Querschnitt von Monat j trainieren (ca. 500 Aktien x 14 Charakteristika)
     in_month_j = month_nr == j
     fitted = clone(model).fit(X[in_month_j], y[in_month_j])
 
-    # 2. Damit alle Aktien der Monate j + 1 ... j + window prognostizieren
-    in_forecast_months = (month_nr > j) & (month_nr >= first) & (month_nr <= min(j + window, last))
-    forecast_sum[in_forecast_months] += fitted.predict(X[in_forecast_months])
+    # 2. Damit alle Aktien der Monate j + 1 ... j + window prognostizieren (expanding: alle späteren)
+    last_month = last if expanding else min(j + window, last)
+    in_forecast_months = (month_nr > j) & (month_nr >= first) & (month_nr <= last_month)
+    forecast_sum[..., in_forecast_months] += predict(fitted, X[in_forecast_months])
     n_models[in_forecast_months] += 1
 
 # 3. Mittelwert: Summe der Prognosen / Anzahl der Modelle
@@ -413,13 +414,16 @@ Was hier passiert:
 - Am Ende ist `forecast_sum / n_models` der **Mittelwert der Prognosen der
   letzten 120 Monatsmodelle** – für jede Aktie in jedem Monat.
 
-In `main.py` wird diese Funktion für jedes der vier Modelle aufgerufen:
+(`[..., …]` bedeutet: funktioniert auch, wenn die Prognose bei den Investors
+eine Tabelle mit einer Zeile pro Investor ist.)
+
+In `main.py` wird diese Funktion – oder `stacked_forecast`, siehe 2h – für jedes
+Modell aufgerufen:
 
 ```python
 for name in MODELS_TO_RUN:
-    forecast, model_importances = models.fama_macbeth_forecast(
-        models.MODELS[name], X, y, month_nr, first, last, TRAIN_WINDOW, name)
-    preds[name] = forecast[is_test_row]
+    forecast, model_importances = estimate(models.MODELS[name], X, y, month_nr, first, last, TRAIN_WINDOW,
+                                           expanding=WINDOW_TYPE == "expanding", label=name, **options)
 ```
 
 Das Ergebnis ist die Tabelle `preds` mit einer Zeile pro (Monat, Aktie):
@@ -988,6 +992,53 @@ diesem Verfahren und diesen 14 Kennzahlen lässt sich unter den 500 größten
 US-Aktien seit 2009 keine Überrendite gegenüber Equal Weight erzielen.*
 Ein Ergebnis nahe null mit kleinen t-Statistiken heißt auch: Ein kleiner
 Vorteil lässt sich mit 11 Jahren Daten weder nachweisen noch ausschließen.
+
+### Vergleich: gestapelte Schätzung (`ESTIMATION = "stacked"`)
+
+Derselbe Zeitraum (1974–2013), aber jedes Modell lernt auf allen 120 Monaten
+zugleich (60 000 Zeilen) und wird alle 12 Monate neu trainiert. Alle
+Ergebnisse liegen in `output/stacked/`.
+
+| Modell | Steigung Tab. 3 (t) – Fama-MacBeth | Steigung Tab. 3 (t) – gestapelt | H−L EW in % (t) – Fama-MacBeth | H−L EW in % (t) – gestapelt |
+| --- | --- | --- | --- | --- |
+| OLS | 0,42 (2,28) | 0,36 (2,74) | 0,71 (2,56) | 0,64 (2,38) |
+| Decision Tree | 0,31 (1,72) | 0,10 (1,61) | 0,39 (1,49) | 0,22 (1,17) |
+| Random Forest | 0,59 (1,20) | 0,54 (3,85) | 0,37 (1,22) | 0,74 (2,99) |
+| XGBoost | 0,37 (2,63) | 0,24 (3,67) | 0,58 (2,27) | 0,70 (3,07) |
+| Investors | 0,46 (1,21) | 0,77 (3,30) | – | 0,61 (2,47) |
+
+- **Random Forest und XGBoost profitieren deutlich vom Stapeln:** Ihre
+  H−L-Renditen sind höher als die von OLS, mit t-Statistiken um 3. Ein Baum
+  auf 60 000 Beobachtungen findet stabilere Muster als 120 Bäume auf je 500.
+- **Der einzelne Decision Tree wird schlechter:** Ein großer Baum auf
+  gestapelten Daten übertreibt die Unterschiede stark (Streuung der
+  Prognosen 1,22 % statt 0,36 %, Steigung nur 0,10).
+- Long Top 20 % ergibt 9,4–9,7 % p. a. für OLS, Random Forest, XGBoost und
+  Investors gegenüber 7,1 % für Equal Weight.
+- Der Rückgang über die Zeit ist hier schwächer: Kein Trend ist signifikant
+  (alle |t| < 2).
+
+### Ergebnisse zu Schritt 8: Machine Forecast Disagreement
+
+| Lauf | MFD Mittel (% p. M.) | H−L nach MFD, EW in % (t) | Steigung MFD in FM-Regression (t) |
+| --- | --- | --- | --- |
+| Fama-MacBeth, 1974–2013 | 0,27 | −0,10 (−0,44) | −0,17 (−0,13) |
+| Fama-MacBeth, 1974–2024 | 0,26 | −0,07 (−0,34) | 0,04 (0,03) |
+| gestapelt, 1974–2013 | 0,51 | 0,02 (0,08) | 0,03 (0,19) |
+
+- **Mit unserer Umsetzung sagt die Disagreement die Renditen nicht voraus.**
+  Keine der Kennzahlen ist auch nur annähernd signifikant; das Vorzeichen ist
+  nur im Fama-MacBeth-Lauf bis 2013 das im Paper erwartete.
+- Die MFD hängt deutlich mit dem **Risiko** zusammen: Die Volatilität der
+  Dezilportfolios steigt von 4,3 % (Low) auf 6,6 % (High) pro Monat
+  (gestapelt: 4,5 % auf 8,1 %). Investoren sind sich bei riskanten Aktien
+  uneiniger – das passt zum Paper, in dem MFD mit idiosynkratischer
+  Volatilität korreliert.
+- Mögliche Gründe für den Unterschied zum Paper: nur die 500 größten Aktien
+  (der MFD-Effekt ist im Paper bei kleinen, schwer leerzuverkaufenden Aktien
+  am stärksten), nur 14 statt 153 Kennzahlen (weniger Spielraum für
+  unterschiedliche Informationsmengen) und ein Baum statt eines Random Forest
+  pro Investor.
 
 Mögliche Ansatzpunkte für die Arbeit: andere Hyperparameter in `models.py`
 sowie Lewellens Modell 1 und 2 im Vergleich (`FEATURE_SET`).
