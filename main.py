@@ -38,8 +38,8 @@ from util import DATE, ID, RET, SIZE  # Spaltennamen: Monatsende, Aktie, Rendite
 FEATURE_SET = "Model 3"      # Prädiktoren nach Lewellen (2015): "Model 1" (Größe, B/M, Momentum),
                              # "Model 2" (+ Emissionen, Accruals, Profitabilität, Asset Growth), "Model 3" (alle 14)
 UNIVERSE = "top500"          # "top500": pro Monat die UNIVERSE_SIZE größten Aktien
-                             # "large": alle Aktien über dem NYSE-Median (Lewellens "large stocks", Tabelle 3
-                             #   Panel C, ca. 700-1.000 pro Monat); braucht beim ersten Mal die JKP-Rohdaten
+                             # "large": alle Stammaktien über dem NYSE-Median (Lewellens "large stocks", Tabelle 3
+                             #   Panel C, ca. 300-1.000 pro Monat); braucht beim ersten Mal die JKP-Rohdaten
 UNIVERSE_SIZE = 500          # nur "top500": Anzahl der größten Aktien pro Monat (max. 1000)
 ESTIMATION = "single"        # "single": ein Modell pro Monat, Prognose = Mittel der Monatsmodelle (Lewellen,
                              #   Fama-MacBeth); "stacked": ein Modell auf allen gestapelten Monaten des
@@ -86,14 +86,16 @@ if not os.path.exists(prepared_path):
 df = pd.read_csv(prepared_path, parse_dates=[DATE])
 features = util.LEWELLEN_MODELS[FEATURE_SET]
 
-# Stichprobe wie im Paper: ab 1964, nur Aktien mit Rendite und allen Charakteristika,
-# bei "top500" davon pro Monat die 500 größten nach Marktkapitalisierung
+# Stichprobe wie im Paper: ab 1964, nur Monate mit is_included = 1 (die übrigen Zeilen der Datei sind
+# nur die Historie der Aktien), mit Rendite und allen Charakteristika; bei "top500" davon pro Monat die
+# 500 größten. Die Ränge der Datei gelten für alle Aktien und werden innerhalb der Stichprobe neu gebildet.
 df = df.sort_values([DATE, ID])
-df = df[df[DATE] >= "1964-01-01"].dropna(subset=[RET, *features])
+df = df[(df[DATE] >= "1964-01-01") & (df["is_included"] == 1)].dropna(subset=[RET, *features])
 if UNIVERSE == "top500":
     size_rank = df.groupby(DATE)[SIZE].rank(ascending=False, method="first")  # 1 = größte Aktie
     df = df[size_rank <= UNIVERSE_SIZE]
 df = df.reset_index(drop=True)
+df[util.JKP_CHARACTERISTICS] = util.rank_characteristics(df)
 print(f"  {len(df):,} rows | {df[ID].nunique():,} stocks | {df[DATE].nunique()} months "
       f"({df[DATE].min():%Y-%m} - {df[DATE].max():%Y-%m}) | {len(features)} characteristics ({FEATURE_SET})")
 

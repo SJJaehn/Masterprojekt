@@ -202,26 +202,34 @@ df[JKP_CHARACTERISTICS] = (ranks - 1) / (ranks.groupby(df["eom"]).transform("max
 Diese Aufbereitung (`util.build_prepared_data`) läuft nur einmal auf den 6-GB-Rohdaten
 des Tutors. Das Ergebnis ist die Datei in `data/`, die `main.py` danach direkt lädt.
 
+Die Ränge in der Datei beziehen sich auf alle Aktien der Rohdaten. Die Spalte
+`is_included` (1/0) markiert die Monate, in denen eine Stammaktie (CRSP-Share-Code
+10/11, ohne nano/micro, mit Rendite) zu den 1.000 größten gehört. Von diesen Aktien
+enthält die Datei alle Zeilen der 25 Jahre davor und der 5 Jahre danach.
+
 ### Stichprobe: 500 größte Aktien mit vollständigen Daten
 
 ```python
 df = df.sort_values([DATE, ID])
-df = df[df[DATE] >= "1964-01-01"].dropna(subset=[RET, *features])
+df = df[(df[DATE] >= "1964-01-01") & (df["is_included"] == 1)].dropna(subset=[RET, *features])
 size_rank = df.groupby(DATE)[SIZE].rank(ascending=False, method="first")  # 1 = größte Aktie
 df = df[size_rank <= UNIVERSE_SIZE].reset_index(drop=True)
+df[util.JKP_CHARACTERISTICS] = util.rank_characteristics(df)
 ```
 
 `DATE`, `ID`, `RET` und `SIZE` sind Kurznamen für die Spalten `eom`, `id`,
 `ret_exc_lead1m` und `me`. Die Filter, Zeile für Zeile:
 
-1. Nur Monate **ab 1964** (wie im Paper: ab dann gibt es Compustat-Daten).
+1. Nur Monate **ab 1964** (wie im Paper: ab dann gibt es Compustat-Daten) und
+   mit `is_included = 1`; die übrigen Zeilen der Datei sind nur die Historie der Aktien.
 2. `dropna`: nur Aktien, für die die Rendite und **alle 14 Kennzahlen**
    vorliegen (wie im Paper).
 3. In jedem Monat (`groupby(DATE)`) die Aktien nach Marktkapitalisierung
    absteigend ranken und nur die **Ränge 1 bis 500** behalten.
+4. Die Kennzahlen **innerhalb dieser Stichprobe neu ranken**.
 
 Ergebnis: 731 Monate (Januar 1964 bis November 2024) mit je 500 Aktien; nur
-in den ersten 28 Monaten (bis April 1966) sind es 415–499, weil noch nicht
+in den ersten 41 Monaten (bis Mai 1967) sind es 407–499, weil noch nicht
 genug Firmen alle 14 Kennzahlen haben.
 
 Das Universum wird jeden Monat neu bestimmt; eine Aktie kann also hinein- und
@@ -1329,7 +1337,7 @@ Ordner setzen (so ist `output/single_until_2024/` entstanden).
 ### Lewellens "large stocks" (`UNIVERSE = "large"`)
 
 Mit `UNIVERSE = "large"` nutzt das Skript statt der 500 größten Aktien **alle
-Aktien, die größer als der NYSE-Median sind** – genau Lewellens Gruppe
+Stammaktien, die größer als der NYSE-Median sind** – Lewellens Gruppe
 "large stocks" (Tabelle 3 und 6, Panel C, im Mittel 728 Aktien mit
 vollständigen Daten). JKP liefert dafür die Größengruppe `size_grp`, die
 jeden Monat nach NYSE-Breakpoints der Marktkapitalisierung gebildet wird:
@@ -1344,8 +1352,19 @@ jeden Monat nach NYSE-Breakpoints der Marktkapitalisierung gebildet wird:
 
 ```python
 if universe == "large":
-    df = df[df["size_grp"].isin(["large", "mega"]) & (df["eom"] >= "1964-01-01")]
+    is_selected = (df["size_grp"].isin(["large", "mega"]) & df["crsp_shrcd"].isin([10, 11])).to_numpy()
 ```
+
+"All common stocks on CRSP" im Paper entspricht den Share Codes 10 und 11. Die
+Datei reicht bis 2024; den Zeitraum des Papers legt `TEST_END` fest. Aktien pro
+Monat mit `is_included = 1` im Vergleich (Mai 1964 bis Dezember 2013):
+
+| Daten vorhanden für | Lewellen | `jkp_large_rank.csv.gz` |
+| --- | --- | --- |
+| Rendite | 876 | 888 |
+| Model 1 | 876 | 835 |
+| Model 2 | 745 | 747 |
+| Model 3 | 728 | 659 |
 
 Die vorbereitete CSV dafür (`data/jkp_large_rank.csv.gz`) wird beim ersten
 Lauf aus den JKP-Rohdaten erzeugt; diese sind nicht im Repository. Einmalig:
@@ -1358,8 +1377,13 @@ Lauf aus den JKP-Rohdaten erzeugt; diese sind nicht im Repository. Einmalig:
    Rohdaten.
 
 Die Ergebnisse landen in `output/single_large/` (bzw. `output/stacked_large/`).
-Die Ränge der Kennzahlen werden wie bisher unter allen "all-but-tiny"-Aktien
-gebildet und erst danach auf die großen Aktien eingeschränkt.
+Die Datei enthält zusätzlich die Historie dieser Aktien: 25 Jahre vor und
+5 Jahre nach jedem Monat über dem NYSE-Median, soweit die Rohdaten sie enthalten,
+auch mit kleineren Größengruppen und ohne Rendite. Die Spalte `is_included` (1/0)
+markiert die Monate, in denen die Aktie zu den "large stocks" gehört. Die Ränge
+in der Datei beziehen sich auf alle Aktien der Rohdaten; `main.py` behält ab 1964
+nur die Zeilen mit `is_included = 1`, Rendite und allen Kennzahlen und bildet die
+Ränge innerhalb dieser Stichprobe neu.
 
 ### Ausgabedateien in `output/`
 
