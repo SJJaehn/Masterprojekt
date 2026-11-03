@@ -515,15 +515,39 @@ Entscheidungsbaum** der Tiefe 3 (wie im Paper):
 
 ```python
 # 1. Informationsmenge jedes Investors (bei gleichem random_state in jeder Schätzung dieselbe)
-self.features_ = [np.sort(rng.choice(n_features, n_seen, replace=False)) for _ in range(self.n_investors)]
-# 2. Jeder Investor schätzt seinen Baum auf einer eigenen Bootstrap-Stichprobe
+feature_rng = np.random.default_rng(self.random_state)
+self.features_ = [np.sort(feature_rng.choice(n_features, n_seen, replace=False))
+                  for _ in range(self.n_investors)]
+# 2. Bootstrap genau wie sklearns RandomForestRegressor: je Baum ein eigener Startwert, daraus
+#    n Zeilen mit Zurücklegen; gezogene Zeilen gehen mit ihrer Häufigkeit als Gewicht ein
+#    (min_samples_leaf zählt also verschiedene Aktien, nicht Kopien derselben Aktie)
+seed_rng = np.random.RandomState(self.random_state)
 self.trees_ = []
-for k, cols in enumerate(self.features_):
-    rows = rng.integers(0, n_rows, n_rows)
+for cols in self.features_:
+    seed = seed_rng.randint(np.iinfo(np.int32).max)
+    rows = np.random.RandomState(seed).randint(0, n_rows, n_rows)
     tree = DecisionTreeRegressor(max_depth=self.max_depth, min_samples_leaf=self.min_samples_leaf,
-                                 random_state=k)
-    self.trees_.append(tree.fit(X[rows][:, cols], y[rows]))
+                                 random_state=seed)
+    self.trees_.append(tree.fit(X[:, cols], y, sample_weight=np.bincount(rows, minlength=n_rows)))
 ```
+
+**Dieselben Regeln wie sklearns Random Forest.** Bootstrap, Startwerte und
+Baumparameter folgen genau `RandomForestRegressor` (`bootstrap=True`):
+
+| Regel | sklearn `RandomForestRegressor` | `Investors` |
+| --- | --- | --- |
+| Größe der Bootstrap-Stichprobe | *n* Zeilen mit Zurücklegen (`max_samples=None`) | gleich |
+| Wie die Stichprobe eingeht | jede Zeile mit ihrer Häufigkeit als Gewicht (`sample_weight`), nicht gezogene mit Gewicht 0 | gleich |
+| `min_samples_leaf = 50` | zählt verschiedene gezogene Aktien, nicht doppelt gezogene Kopien | gleich |
+| Startwerte | je Baum `randint` aus `RandomState(random_state)`; derselbe Wert für Stichprobe und Baum | gleich |
+| Anzahl Kennzahlen bei einem Anteil | `max(1, int(Anteil × 14))` | gleich (7 von 14) |
+| Welche Kennzahlen | bei **jeder Verzweigung** neu gezogen (`max_features`) | **eine feste Teilmenge pro Investor** – gewollt, das ist die Informationsmenge aus dem Paper |
+
+Geprüft: Mit `feature_share = 1.0` (alle Kennzahlen) liefert `Investors` exakt
+dieselben 100 Bäume – gleiche Verzweigungen, gleiche Prognosen bis auf die
+letzte Nachkommastelle – wie
+`RandomForestRegressor(n_estimators=100, max_depth=3, min_samples_leaf=50, max_features=1.0, random_state=42)`.
+Der einzige Unterschied ist damit die feste Informationsmenge.
 
 Weil jeder Baum einzeln gespeichert ist, kann jeder Investor seine eigene
 Prognose abgeben (`predict_each`: eine Zeile pro Investor). Ihr Mittelwert ist

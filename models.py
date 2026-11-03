@@ -42,18 +42,23 @@ class Investors(BaseEstimator, RegressorMixin):
         self.random_state = random_state
 
     def fit(self, X, y):
-        rng = np.random.default_rng(self.random_state)
         n_rows, n_features = X.shape
-        n_seen = max(1, round(n_features * self.feature_share))
+        n_seen = max(1, int(n_features * self.feature_share))  # wie sklearn bei max_features als Anteil
         # 1. Informationsmenge jedes Investors (bei gleichem random_state in jeder Schätzung dieselbe)
-        self.features_ = [np.sort(rng.choice(n_features, n_seen, replace=False)) for _ in range(self.n_investors)]
-        # 2. Jeder Investor schätzt seinen Baum auf einer eigenen Bootstrap-Stichprobe
+        feature_rng = np.random.default_rng(self.random_state)
+        self.features_ = [np.sort(feature_rng.choice(n_features, n_seen, replace=False))
+                          for _ in range(self.n_investors)]
+        # 2. Bootstrap genau wie sklearns RandomForestRegressor: je Baum ein eigener Startwert, daraus
+        #    n Zeilen mit Zurücklegen; gezogene Zeilen gehen mit ihrer Häufigkeit als Gewicht ein
+        #    (min_samples_leaf zählt also verschiedene Aktien, nicht Kopien derselben Aktie)
+        seed_rng = np.random.RandomState(self.random_state)
         self.trees_ = []
-        for k, cols in enumerate(self.features_):
-            rows = rng.integers(0, n_rows, n_rows)
+        for cols in self.features_:
+            seed = seed_rng.randint(np.iinfo(np.int32).max)
+            rows = np.random.RandomState(seed).randint(0, n_rows, n_rows)
             tree = DecisionTreeRegressor(max_depth=self.max_depth, min_samples_leaf=self.min_samples_leaf,
-                                         random_state=k)
-            self.trees_.append(tree.fit(X[rows][:, cols], y[rows]))
+                                         random_state=seed)
+            self.trees_.append(tree.fit(X[:, cols], y, sample_weight=np.bincount(rows, minlength=n_rows)))
         return self
 
     def predict_each(self, X):
