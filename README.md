@@ -478,7 +478,7 @@ Im ersten Prognosemonat (Januar 1974) sind beide gleich, weil es noch genau
 | `ESTIMATION` | Training | Prognose | Vorbild |
 | --- | --- | --- | --- |
 | `"single"` (Standard) | **120 Modelle**, jedes auf **einem** Monat (~500 Zeilen) | Mittel der 120 Prognosen | Lewellen (2015) |
-| `"stacked"` | **ein Modell** auf allen 120 Monaten **untereinandergestapelt** (~60 000 Zeilen) | direkt die Prognose dieses Modells; neu trainiert alle `REFIT_EVERY = 12` Monate | Gu, Kelly & Xiu (2020); auch das MFD-Paper |
+| `"stacked"` | **ein Modell** auf allen 120 Monaten **untereinandergestapelt** (~60 000 Zeilen) | direkt die Prognose dieses Modells; neu trainiert alle `REFIT_EVERY` Monate (Standard: jeden Monat) | Gu, Kelly & Xiu (2020); auch das MFD-Paper |
 
 Beide Verfahren nutzen dieselben Informationen (die 10 Jahre vor *t*). Der
 Unterschied: Beim Stapeln sieht **ein** Baum 60 000 Beobachtungen und kann
@@ -486,6 +486,13 @@ feinere Muster lernen, die über die Jahre stabil sind; beim Fama-MacBeth-Weg
 lernt jeder Baum nur aus einem Monat, und erst das Mitteln glättet das
 Rauschen. Für OLS liefern beide fast dasselbe; für die Bäume können sie sich
 deutlich unterscheiden.
+
+Neu trainiert wird standardmäßig **jeden Monat** (`REFIT_EVERY = 1`). So
+nutzt `stacked` in jedem Monat genau dieselben Daten wie `single`, und der
+Vergleich misst nur den Unterschied zwischen Stapeln und Mitteln. Gu, Kelly &
+Xiu trainieren aus Rechenzeitgründen nur einmal im Jahr neu (`REFIT_EVERY = 12`);
+dann ist das Modell bis zu 11 Monate alt, was im Test die Ergebnisse etwas
+verschlechtert hat.
 
 ```python
 for i, t in enumerate(refit_months, start=1):
@@ -1422,7 +1429,7 @@ Alle wichtigen Einstellungen stehen oben in `main.py`:
 | `ESTIMATION` | `"single"` | `"single"` (Mittel der Monatsmodelle, wie Lewellen) oder `"stacked"` (ein Modell auf gestapelten Daten, wie Gu, Kelly & Xiu), siehe 2h |
 | `WINDOW_TYPE` | `"rolling"` | `"rolling"` (letzte 10 Jahre) oder `"expanding"` (alle Jahre seit 1964), siehe 2g |
 | `TRAIN_WINDOW` | `120` | Fensterlänge in Monaten (zugleich die Mindesthistorie vor der ersten Prognose) |
-| `REFIT_EVERY` | `12` | nur `"stacked"`: alle wie viele Monate neu trainiert wird |
+| `REFIT_EVERY` | `1` | nur `"stacked"`: alle wie viele Monate neu trainiert wird (1 = jeden Monat wie bei `"single"`; Gu, Kelly & Xiu: 12) |
 | `TEST_START`, `TEST_END` | 1974–2013 | Prognosezeitraum (`TEST_END = None`: bis 2024) |
 | `MODELS_TO_RUN` | alle fünf | Liste der Modelle; ohne `"Investors"` entfällt Schritt 8 |
 | `LONG_PCT`, `SHORT_PCT` | `0.10`, `0.10` | Anteil der gekauften bzw. leerverkauften Aktien in Schritt 6 und 8 |

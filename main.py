@@ -47,7 +47,7 @@ ESTIMATION = "single"        # "single": ein Modell pro Monat, Prognose = Mittel
 WINDOW_TYPE = "rolling"      # "rolling": die letzten TRAIN_WINDOW Monate (Paper: Hauptergebnis)
                              # "expanding": alle Monate seit 1964 (Paper: "cumulative")
 TRAIN_WINDOW = 120           # Fensterlänge in Monaten (Paper: 10 Jahre); bei "expanding" die Mindestlänge
-REFIT_EVERY = 12             # nur "stacked": Modell alle 12 Monate neu trainieren (wie Gu, Kelly & Xiu)
+REFIT_EVERY = 1              # nur "stacked": Modell jeden Monat neu trainieren wie bei "single" (Gu, Kelly & Xiu: 12)
 TEST_START = "1974-01-01"    # erster Prognosemonat (Paper: 1974)
 TEST_END = "2013-12-31"      # letzter Prognosemonat (Paper: 2013; None: bis zum Ende der Daten, 2024)
 MODELS_TO_RUN = ["OLS", "DecisionTree", "RandomForest", "XGBoost", "Investors"]
