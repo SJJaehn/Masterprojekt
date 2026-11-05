@@ -60,6 +60,13 @@ mit allen fünf Modellen dauert auf einem Rechner mit 4 Kernen etwa
 13 Minuten (`"stacked"`: etwa 16 Minuten). Zum schnellen
 Ausprobieren `MODELS_TO_RUN` in `main.py` auf weniger Modelle kürzen.
 
+Wenn mehrere Läufe in `output/` liegen, fasst `summary.py` sie zusammen (dauert
+nur Sekunden, es wird nichts neu geschätzt):
+
+```bash
+python summary.py
+```
+
 ## Aufbau des Projekts
 
 | Datei | Inhalt |
@@ -67,7 +74,8 @@ Ausprobieren `MODELS_TO_RUN` in `main.py` auf weniger Modelle kürzen.
 | `main.py` | **Hier anfangen.** Ein Skript, das von oben nach unten läuft: oben die Einstellungen, darunter die sieben Schritte, jeder unter einer eigenen Überschrift. |
 | `models.py` | Die Modelle mit ihren Hyperparametern, die simulierten Investoren und die beiden Schätzverfahren (Schritt 2) |
 | `util.py` | Werkzeugkasten: Datenaufbereitung, Fama-MacBeth-Regression, Newey-West-Test, Portfolios, Kennzahlen, Grafiken |
-| `output/` | Ergebnisse: `single/` (Standard), `stacked/` und `single_until_2024/`, jeweils mit `predicted_return/` und `investor_disagreement/` – siehe [Ausgabedateien](#ausgabedateien-in-output) |
+| `summary.py` | Liest die Ergebnisse aller Läufe in `output/` und fasst sie in einer CSV und Vergleichsgrafiken zusammen (`output/summary/`) |
+| `output/` | Ergebnisse: `single/` (Standard), `stacked/`, `single_until_2024/`, `single_large/` und `stacked_large/`, jeweils mit `predicted_return/` und `investor_disagreement/` – siehe [Ausgabedateien](#ausgabedateien-in-output) |
 | `data/jkp_top1000_25y_5y_rank.csv.gz` | Vorbereitete Daten (aus den 6-GB-Rohdaten des Tutors erzeugt) |
 | `Thema 3 - Stock Return Prediction/` | MATLAB-Skripte des Tutors, an denen sich die Datenaufbereitung orientiert |
 | `ssrn-2511246.pdf` | Das Paper |
@@ -1487,8 +1495,21 @@ output/
 ├── stacked/                    ESTIMATION = "stacked", 1974–2013, gleicher Aufbau
 ├── single_until_2024/          ESTIMATION = "single", Prognosen bis 2024, gleicher Aufbau
 ├── single_large/               UNIVERSE = "large", ESTIMATION = "single", 1974–2013
-└── stacked_large/              UNIVERSE = "large", ESTIMATION = "stacked", 1974–2013
+├── stacked_large/              UNIVERSE = "large", ESTIMATION = "stacked", 1974–2013
+└── summary/                    Vergleich aller Läufe, erzeugt von summary.py
 ```
+
+**`summary/`** (`python summary.py`, liest nur die Ordner oben)
+
+| Datei | Inhalt |
+| --- | --- |
+| `summary.csv` | eine Zeile pro Lauf und Signal (fünf Modelle und MFD): Steigung und IC mit t-Statistik, H−L gleich- und wertgewichtet (Rendite, t, Sharpe), Long, Short und Long-Short (Rendite p. a., Volatilität, Sharpe, Max Drawdown) und Equal Weight |
+| `hl_single_vs_stacked.png` | H−L-Rendite je Modell, `single` gegen `stacked`, 500 größte und large stocks, mit 95-%-Intervall (± 1,96 Standardfehler) |
+| `strategy_return_sharpe.png` | Rendite p. a. und Sharpe Ratio von Long, Short und Long-Short für alle vier Läufe 1974–2013; Linien: Equal Weight |
+| `wealth_long-short_top500.png`, `wealth_long-short_large.png` | Wertentwicklung Long-Short je Modell, `single` gegen `stacked`, mit Equal Weight |
+| `rolling_hl_top500.png`, `rolling_hl_large.png` | gleitender 10-Jahres-Mittelwert der H−L-Rendite je Modell, `single` gegen `stacked` |
+
+![H−L-Rendite single gegen stacked](output/summary/hl_single_vs_stacked.png)
 
 **`predicted_return/`**
 
