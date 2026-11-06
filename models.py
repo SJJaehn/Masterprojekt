@@ -136,12 +136,13 @@ MODELS = {
 }
 
 # Mögliche Hyperparameter, aus denen auf der Validierung gewählt wird (Gu, Kelly & Xiu 2020,
-# Internet Appendix Tabelle A.5; dort 920 statt 14 Eingaben, daher max_features nur bis 10).
+# Internet Appendix Tabelle A.5; dort 920 statt 14 Eingaben, daher max_features nur bis 10;
+# XGBoost dort bis 1000 Bäume, hier höchstens 300).
 # Alle übrigen Einstellungen (z. B. min_samples_leaf = 50) bleiben wie in MODELS.
 GRIDS = {
     "DecisionTree": {"max_depth": [1, 2, 3, 4, 5, 6]},
     "RandomForest": {"max_depth": [1, 2, 3, 4, 5, 6], "max_features": [3, 5, 10]},
-    "XGBoost": {"max_depth": [1, 2], "learning_rate": [0.01, 0.1], "n_estimators": [100, 300, 1000]},
+    "XGBoost": {"max_depth": [1, 2], "learning_rate": [0.01, 0.1], "n_estimators": [100, 300]},
     "Investors": {"max_depth": [1, 2, 3, 4, 5, 6]},
 }
 
