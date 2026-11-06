@@ -161,6 +161,7 @@ if chosen_hyperparameters:
     for name, table in chosen_hyperparameters.groupby("model", sort=False):
         params = [c for c in table.columns if c not in ("model", "first_forecast_month", "validation_mse",
                                                        "validation_mse_worst") and table[c].notna().any()]
+        table = table.astype({c: int for c in params if (table[c] % 1 == 0).all()})  # 100.0 -> 100
         counts = table.groupby(params).size().sort_values(ascending=False)
         print(f"  {name:<13} " + " | ".join(f"{dict(zip(params, k if isinstance(k, tuple) else (k,)))}: {n}"
                                             for k, n in counts.items()))
