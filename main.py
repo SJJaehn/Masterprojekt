@@ -48,6 +48,10 @@ WINDOW_TYPE = "rolling"      # "rolling": die letzten TRAIN_WINDOW Monate (Paper
                              # "expanding": alle Monate seit 1964 (Paper: "cumulative")
 TRAIN_WINDOW = 120           # Fensterlänge in Monaten (Paper: 10 Jahre); bei "expanding" die Mindestlänge
 REFIT_EVERY = 1              # nur "stacked": Modell jeden Monat neu trainieren wie bei "single" (Gu, Kelly & Xiu: 12)
+TUNE_HYPERPARAMETERS = True  # Hyperparameter der Bäume einmal im Jahr auf einer Validierung wählen (Gu, Kelly & Xiu),
+                             #   in beiden Verfahren gleich; False: feste Werte aus models.MODELS
+VALIDATION_MONTHS = 36       # davon die letzten 36 Monate des Fensters zur Validierung, die ersten 84 zum Training
+RETUNE_EVERY = 12            # alle wie viele Monate die Hyperparameter neu gewählt werden (Paper: jedes Jahr)
 TEST_START = "1974-01-01"    # erster Prognosemonat (Paper: 1974)
 TEST_END = "2013-12-31"      # letzter Prognosemonat (Paper: 2013; None: bis zum Ende der Daten, 2024)
 MODELS_TO_RUN = ["OLS", "DecisionTree", "RandomForest", "XGBoost", "Investors"]
@@ -124,11 +128,21 @@ y = df[RET].to_numpy(dtype=float)       # Rendite im Monat t + 1
 is_test_row = (month_nr >= first) & (month_nr <= last)
 preds = df.loc[is_test_row, [DATE, ID, SIZE, RET]].reset_index(drop=True)
 estimate = models.fama_macbeth_forecast if ESTIMATION == "single" else models.stacked_forecast
+tuned_estimate = models.tuned_fama_macbeth_forecast if ESTIMATION == "single" else models.tuned_stacked_forecast
 options = {"refit_every": REFIT_EVERY} if ESTIMATION == "stacked" else {}
-importances = {}
+importances, chosen_hyperparameters = {}, []
 for name in MODELS_TO_RUN:
-    forecast, model_importances = estimate(models.MODELS[name], X, y, month_nr, first, last, TRAIN_WINDOW,
-                                           expanding=WINDOW_TYPE == "expanding", label=name, **options)
+    if TUNE_HYPERPARAMETERS and name in models.GRIDS:
+        # Hyperparameter jedes Jahr auf den letzten VALIDATION_MONTHS Monaten des Fensters wählen
+        forecast, model_importances, chosen = tuned_estimate(
+            models.MODELS[name], models.GRIDS[name], X, y, month_nr, first, last, TRAIN_WINDOW,
+            validation=VALIDATION_MONTHS, retune_every=RETUNE_EVERY, expanding=WINDOW_TYPE == "expanding",
+            label=name, **options)
+        chosen_hyperparameters += [{"model": name, "first_forecast_month": pd.Timestamp(dates[row["first_month_nr"]]),
+                                    **row} for row in chosen]
+    else:
+        forecast, model_importances = estimate(models.MODELS[name], X, y, month_nr, first, last, TRAIN_WINDOW,
+                                               expanding=WINDOW_TYPE == "expanding", label=name, **options)
     if name == "Investors":
         # eine Prognose pro Investor: deren Mittel ist die Prognose, deren Streuung die Disagreement
         investor_forecasts = forecast[:, is_test_row]
@@ -139,6 +153,17 @@ for name in MODELS_TO_RUN:
     if model_importances:  # OLS und Investors haben keine Feature Importances
         importances[name] = np.mean(model_importances, axis=0)
 importances = pd.DataFrame(importances, index=features)
+if chosen_hyperparameters:
+    # gewählte Hyperparameter je Modell und Jahr; Übersicht: wie oft jede Kombination gewählt wurde
+    chosen_hyperparameters = pd.DataFrame(chosen_hyperparameters).drop(columns="first_month_nr")
+    chosen_hyperparameters.to_csv(os.path.join(PRED_DIR, "hyperparameters.csv"), index=False)
+    print("\n  Chosen hyperparameters (number of years, chosen on the validation months):")
+    for name, table in chosen_hyperparameters.groupby("model", sort=False):
+        params = [c for c in table.columns if c not in ("model", "first_forecast_month", "validation_mse",
+                                                       "validation_mse_worst") and table[c].notna().any()]
+        counts = table.groupby(params).size().sort_values(ascending=False)
+        print(f"  {name:<13} " + " | ".join(f"{dict(zip(params, k if isinstance(k, tuple) else (k,)))}: {n}"
+                                            for k, n in counts.items()))
 
 print(f"  Forecasts: {preds[DATE].min():%Y-%m} - {preds[DATE].max():%Y-%m} | {preds[DATE].nunique()} months | "
       f"{preds.groupby(DATE).size().mean():.0f} stocks per month")
