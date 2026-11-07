@@ -135,12 +135,18 @@ def fama_macbeth(df, y_col, x_cols):
     1. Jeden Monat eine Querschnittsregression y = a + b'x (OLS)
     2. Koeffizienten über alle Monate mitteln, t-Statistik mit Newey-West-Standardfehler
 
+    Monate, in denen eine Variable für alle Aktien gleich ist, werden übersprungen: Dort ist
+    die Steigung nicht definiert (das kommt vor, wenn ein Baum der Tiefe 1 allen Aktien
+    dieselbe Prognose gibt).
+
     Rückgabe: (Tabelle mit Coef, S.E. und t-stat pro Variable, monatliche
     Koeffizienten mit R2 und Anzahl der Aktien N).
     """
     # 1. Querschnittsregression pro Monat
     monthly = []
     for date, g in df.groupby(DATE):
+        if (g[x_cols].nunique() <= 1).any():
+            continue
         fit = sm.OLS(g[y_col], sm.add_constant(g[x_cols])).fit()
         monthly.append({DATE: date, **fit.params.rename({"const": "Intercept"}),
                         "R2": fit.rsquared, "N": int(fit.nobs)})
@@ -178,10 +184,12 @@ def prediction_metrics(preds, model):
     - R2 OOS     : 1 - SSE / sum(y^2), Vergleich mit einer Prognose von null (Gu, Kelly & Xiu, 2020)
     - IC         : Information Coefficient, Rangkorrelation zwischen Prognose und
                    realisierter Rendite im Querschnitt, pro Monat, dann gemittelt
+                   (ohne Monate, in denen alle Aktien dieselbe Prognose haben)
     - Hit rate   : Anteil der Prognosen mit dem richtigen Vorzeichen
     """
     y_true, y_pred = preds[RET], preds[model]
-    ic = preds.groupby(DATE).apply(lambda g: g[RET].corr(g[model], method="spearman"), include_groups=False)
+    ic = preds.groupby(DATE).apply(lambda g: g[RET].corr(g[model], method="spearman"),
+                                   include_groups=False).dropna()
     return {
         "RMSE": np.sqrt(np.mean((y_true - y_pred) ** 2)),
         "MAE": np.mean(np.abs(y_true - y_pred)),
