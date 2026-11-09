@@ -48,8 +48,9 @@ WINDOW_TYPE = "rolling"      # "rolling": die letzten TRAIN_WINDOW Monate (Paper
                              # "expanding": alle Monate seit 1964 (Paper: "cumulative")
 TRAIN_WINDOW = 120           # Fensterlänge in Monaten (Paper: 10 Jahre); bei "expanding" die Mindestlänge
 REFIT_EVERY = 1              # nur "stacked": Modell jeden Monat neu trainieren wie bei "single" (Gu, Kelly & Xiu: 12)
-TUNE_HYPERPARAMETERS = True  # Hyperparameter der Bäume einmal im Jahr auf einer Validierung wählen (Gu, Kelly & Xiu),
-                             #   in beiden Verfahren gleich; False: feste Werte aus models.MODELS
+TUNE_HYPERPARAMETERS = False # Hyperparameter der Bäume einmal im Jahr auf einer Validierung wählen (Gu, Kelly & Xiu),
+                             #   in beiden Verfahren gleich; False: Standardwerte der Paper aus models.MODELS
+                             #   (Ergebnisse dann in output/<TARGET>_fixed/)
 TARGET = "return"            # Zielgröße der Bäume: "return" (Rendite, wie Gu, Kelly & Xiu) oder "rank" (Rang der Rendite
                              #   im Monat auf [-0.5, 0.5]); OLS lernt immer die Rendite (Lewellen)
 VALIDATION_MONTHS = 36       # davon die letzten 36 Monate des Fensters zur Validierung, die ersten 84 zum Training
@@ -66,7 +67,7 @@ ROLLING_MONTHS = 12          # Schritt 7: gleitender Mittelwert (zusätzlich imm
 #   predicted_return/       Auswertung der Renditeprognosen wie im Paper (Tabellen 2, 3, 6, Strategie, Zeitverlauf)
 #   investor_disagreement/  dieselbe Auswertung für die Disagreement der Investoren (Schritt 8)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = os.path.join(BASE_DIR, "output", TARGET,
+OUTPUT_DIR = os.path.join(BASE_DIR, "output", TARGET if TUNE_HYPERPARAMETERS else f"{TARGET}_fixed",
                           ESTIMATION if UNIVERSE == "top500" else f"{ESTIMATION}_{UNIVERSE}")
 PRED_DIR = os.path.join(OUTPUT_DIR, "predicted_return")
 MFD_DIR = os.path.join(OUTPUT_DIR, "investor_disagreement")

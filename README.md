@@ -57,10 +57,9 @@ Schritte nacheinander und schreibt die Tabellen in die Konsole. Ergebnisse
 Standardlaufs liegen dort bereits im Repository – man muss das Skript also
 nicht laufen lassen, um sie anzusehen. Ein kompletter Lauf
 mit allen fünf Modellen dauert auf einem Rechner mit 4 Kernen mit der
-jährlichen Wahl der Hyperparameter (Standard) etwa 2½ Stunden, gestapelt
-ebenso; mit den large stocks etwa 3 (`single`) bzw. 4–5 Stunden
-(`stacked`). Mit festen Hyperparametern (`TUNE_HYPERPARAMETERS = False`)
-sind es etwa 13 Minuten. Zum schnellen Ausprobieren `MODELS_TO_RUN` in
+festen Standardwerten (derzeit eingestellt) jeweils etwa eine Stunde. Mit der jährlichen Wahl der Hyperparameter
+(`TUNE_HYPERPARAMETERS = True`) sind es etwa 2½ Stunden, mit den large
+stocks 3 (`single`) bzw. 4–5 Stunden (`stacked`). Zum schnellen Ausprobieren `MODELS_TO_RUN` in
 `main.py` auf weniger Modelle kürzen.
 
 Wenn mehrere Läufe in `output/return/` bzw. `output/rank/` liegen, fasst
@@ -354,22 +353,26 @@ Das Risiko: Ein unbegrenzter Baum teilt so lange, bis jede Gruppe nur noch eine
 Aktie enthält – dann hat er das Rauschen eines Monats auswendig gelernt
 (**Overfitting**). Monatsrenditen bestehen zum größten Teil aus Rauschen; das
 Begrenzen ist daher entscheidend. Das tun die **Hyperparameter**. Die
-Modelle und ihre Einstellungen folgen Gu, Kelly & Xiu (2020); die Tiefe der
-Bäume und einige weitere Werte werden jedes Jahr auf einer Validierung
-gewählt (siehe 2i). In `MODELS` stehen die Startwerte, die nur ohne
-Validierung gelten (`TUNE_HYPERPARAMETERS = False`):
+Modelle und ihre Einstellungen folgen Gu, Kelly & Xiu (2020). Es gibt zwei
+Wege, die Hyperparameter festzulegen:
+
+- **feste Standardwerte aus den Papern** (`TUNE_HYPERPARAMETERS = False`,
+  derzeit eingestellt): die Werte in `MODELS`, angepasst an unsere Daten
+  (siehe unten);
+- **jährliche Wahl auf einer Validierung** wie bei Gu, Kelly & Xiu
+  (`TUNE_HYPERPARAMETERS = True`, siehe 2i): aus `GRIDS`.
 
 ```python
 MODELS = {
     # Benchmark: die lineare Regression aus dem Paper (ohne Hyperparameter)
     "OLS": LinearRegression(),
     # ein einzelner Entscheidungsbaum
-    "DecisionTree": DecisionTreeRegressor(max_depth=5, min_samples_leaf=50, random_state=42),
+    "DecisionTree": DecisionTreeRegressor(max_depth=3, min_samples_leaf=50, random_state=42),
     # Mittel vieler unabhängiger Bäume (Bagging); 300 Bäume wie bei Gu, Kelly & Xiu
-    "RandomForest": RandomForestRegressor(n_estimators=300, max_depth=6, min_samples_leaf=50,
+    "RandomForest": RandomForestRegressor(n_estimators=300, max_depth=3, min_samples_leaf=50,
                                           max_features=3, n_jobs=-1, random_state=42),
     # Bäume nacheinander, jeder korrigiert die Fehler der vorigen (Boosting), mit Huber-Verlust
-    "XGBoost": HuberBoosting(n_estimators=300, max_depth=2, learning_rate=0.1, random_state=42),
+    "XGBoost": HuberBoosting(n_estimators=500, max_depth=2, learning_rate=0.01, random_state=42),
     # 100 simulierte Investoren, je ein Baum auf der Hälfte der Charakteristika (siehe 2e)
     "Investors": Investors(n_investors=100, feature_share=0.5, max_depth=3, min_samples_leaf=50, random_state=42),
 }
@@ -384,14 +387,36 @@ GRIDS = {
 }
 ```
 
-| Hyperparameter | Bedeutung | fest | gewählt aus |
+| Hyperparameter | Bedeutung | fester Standardwert | mit Validierung gewählt aus |
 | --- | --- | --- | --- |
-| `max_depth` | höchstens so viele Fragen hintereinander | | Baum, Forest, Investors 1–6; XGBoost 1–2 |
-| `min_samples_leaf` | mindestens so viele Aktien pro Endgruppe – die Prognose ist also immer ein Durchschnitt über ≥ 50 Aktien | 50 | |
-| `n_estimators` | Anzahl der Bäume | Forest 300 | XGBoost 100 oder 300 |
-| `max_features` | Random Forest: bei jeder Frage nur aus einer zufälligen Auswahl von so vielen Kennzahlen wählen | | 3, 5 oder 10 |
-| `learning_rate` | XGBoost: Gewicht, mit dem jeder neue Baum in die Prognose eingeht | | 0,01 oder 0,1 |
+| `max_depth` | höchstens so viele Fragen hintereinander | Baum, Forest, Investors 3; XGBoost 2 | Baum, Forest, Investors 1–6; XGBoost 1–2 |
+| `min_samples_leaf` | mindestens so viele Aktien pro Endgruppe – die Prognose ist also immer ein Durchschnitt über ≥ 50 Aktien | 50 | (immer 50) |
+| `n_estimators` | Anzahl der Bäume | Forest 300; XGBoost 500 | Forest 300; XGBoost 100 oder 300 |
+| `max_features` | Random Forest: bei jeder Frage nur aus einer zufälligen Auswahl von so vielen Kennzahlen wählen | 3 | 3, 5 oder 10 |
+| `learning_rate` | XGBoost: Gewicht, mit dem jeder neue Baum in die Prognose eingeht | 0,01 | 0,01 oder 0,1 |
 | Verlust | XGBoost: Huber-Verlust (siehe unten); alle anderen: quadrierter Fehler | | |
+
+**Woher die festen Werte kommen und wie sie angepasst sind:**
+
+- **Tiefe 3** für Random Forest, Investors und den einzelnen Baum: Das
+  MFD-Paper (Tabelle B1) nutzt Tiefe 3. Bei Gu, Kelly & Xiu wählt der
+  Random Forest "im Mittel ein bis fünf Ebenen" – 3 liegt in der Mitte. Für
+  einen einzelnen Baum nennen die Paper keinen Wert; er bekommt dieselbe
+  Tiefe.
+- **`max_features = 3`:** Die Paper lassen bei jeder Frage nur einen
+  kleinen Teil der Kennzahlen zu (MFD-Paper 5 %, Gu, Kelly & Xiu 3 bis 50
+  von 920). Bei 14 Kennzahlen wären 5 % weniger als eine; 3 ist etwa die
+  Wurzel aus 14, der übliche Standard.
+- **XGBoost:** Tiefe 2, 500 Bäume und Lernrate 0,01 wie die Boosting-Variante
+  im MFD-Paper (Tabelle C1, Konfiguration 18); alle drei Werte liegen im
+  Raster von Gu, Kelly & Xiu. Huber-Verlust wie dort.
+- **Investors:** Im MFD-Paper ist jeder Investor ein Random Forest aus 2 000
+  Bäumen, jeder auf 5 % der Beobachtungen. Bei rund 500 Aktien pro Monat
+  wären das 25 Aktien pro Baum – zu wenig für Tiefe 3. Daher ein Baum auf
+  allen Aktien (siehe 2e).
+- **`min_samples_leaf = 50`** steht in keinem der Paper: Ein Monatsmodell
+  sieht nur rund 500 Aktien; mit wenigen Aktien pro Blatt würde es vor
+  allem Rauschen lernen.
 | `n_jobs = -1` | alle Prozessorkerne nutzen (ändert nichts am Ergebnis) | | |
 | `random_state` | Startwert des Zufallsgenerators: jeder Lauf liefert dieselben Zahlen | 42 | |
 
@@ -1085,9 +1110,12 @@ Faktor-Alphas; hier ist nur die Grundfunktion umgesetzt.
 
 ## Ergebnisse
 
-Ein Lauf mit den Standardeinstellungen (Modell 3, 500 größte Aktien,
-10-Jahres-Fenster, Hyperparameter jedes Jahr auf einer Validierung gewählt,
-Prognosen 1974–2013, 480 Monate). Alle Zahlen stammen aus `python main.py`;
+Ein Lauf mit Modell 3, 500 größten Aktien, 10-Jahres-Fenster,
+Hyperparameter jedes Jahr auf einer Validierung gewählt
+(`TUNE_HYPERPARAMETERS = True`, Ordner `output/return/`), Prognosen
+1974–2013, 480 Monate. Die Läufe mit den festen Standardwerten der Paper
+(derzeit in `main.py` eingestellt) und mit Rängen als Zielgröße stehen in
+eigenen Abschnitten weiter unten. Alle Zahlen stammen aus `python main.py`;
 sie sind als Ausgangspunkt für die eigene Interpretation gedacht.
 
 ### Gewählte Hyperparameter
@@ -1365,6 +1393,66 @@ werden auf derselben Validierung gewählt. Alle Ergebnisse liegen in
   liegt sie aber auch gestapelt bei allen Modellen nahe null (−0,25 bis
   0,03 %).
 
+### Vergleich: feste Standardwerte der Paper (`TUNE_HYPERPARAMETERS = False`)
+
+Dieselben beiden Läufe (500 größte Aktien, 1974–2013), aber ohne jährliche
+Wahl der Hyperparameter: Die Bäume nutzen die festen Standardwerte aus den
+Papern (siehe 2c). OLS ist in beiden Fällen identisch. Ergebnisse in
+`output/return_fixed/`.
+
+| H−L EW in % (t) / Long-Short p. a., Sharpe | `single`, Validierung | `single`, fest | `stacked`, Validierung | `stacked`, fest |
+| --- | --- | --- | --- | --- |
+| OLS | 0,70 (2,58) / 6,79 %, 0,44 | 0,70 (2,58) / 6,79 %, 0,44 | 0,59 (2,24) / 5,55 %, 0,38 | 0,59 (2,24) / 5,55 %, 0,38 |
+| Decision Tree | 0,45 (1,69) / 3,66 %, 0,28 | 0,44 (1,59) / 3,40 %, 0,27 | 0,00 (−0,03) / −0,56 %, 0,01 | 0,25 (1,45) / 3,38 %, 0,30 |
+| Random Forest | 0,43 (1,45) / 3,11 %, 0,25 | 0,40 (1,34) / 2,77 %, 0,24 | 0,68 (2,62) / 6,45 %, 0,42 | 0,73 (2,75) / 7,21 %, 0,45 |
+| XGBoost | 0,42 (1,56) / 3,22 %, 0,26 | 0,58 (2,13) / 5,17 %, 0,35 | 0,62 (2,40) / 4,92 %, 0,34 | **0,77 (3,07) / 7,77 %, 0,49** |
+| Investors | 0,42 (1,45) / 3,05 %, 0,25 | 0,45 (1,54) / 3,38 %, 0,26 | 0,64 (2,62) / 6,19 %, 0,41 | 0,58 (2,29) / 5,17 %, 0,35 |
+
+- **Gestapelt mit festen Werten schlagen XGBoost und Random Forest beide
+  OLS-Varianten:** XGBoost 0,77 % pro Monat (t = 3,07), Long-Short 7,8 % p. a.
+  mit Sharpe 0,49; Random Forest 0,73 % (t = 2,75). Lewellens OLS (`single`)
+  kommt auf 0,70 % und 6,8 % / 0,44. Beide Seiten tragen bei: Long-Seite
+  0,41 % (t = 2,55) und Short-Seite 0,36 % (t = 2,45) bei XGBoost.
+- Die feste Tiefe 3 ist tiefer als die meist gewählte Tiefe 1–2. Damit
+  bestätigt sich, was die Analyse der Validierung zeigt ("Gewählte
+  Hyperparameter"): Die Auswahl nach dem quadrierten Fehler macht die
+  gestapelten Bäume zu flach; besonders sichtbar beim einzelnen Decision
+  Tree (0,25 % statt 0,00 %).
+- Im Modus `single` ändert sich wenig; nur XGBoost wird mit festen Werten
+  deutlich besser (0,58 % statt 0,42 %).
+- Die festen Werte stammen aus den Papern, nicht aus unseren Testdaten –
+  sie sind also nicht nachträglich auf die Ergebnisse abgestimmt. Es ist
+  aber nur eine Einstellung; wie stark die Ergebnisse davon abhängen, zeigt
+  der Vergleich mit den gewählten Werten.
+
+### Vergleich: Zielgröße Rang (`TARGET = "rank"`)
+
+Dieselben beiden Läufe mit Validierung, aber die Bäume lernen den Rang der
+Rendite im Monat statt der Rendite (siehe 2j). OLS lernt weiter die Rendite
+und ist unverändert. Ergebnisse in `output/rank/`. Vergleichbar sind nur
+Kennzahlen, die von der Reihenfolge der Prognosen abhängen.
+
+| H−L EW in % (t) / IC | `single`, Rendite | `single`, Rang | `stacked`, Rendite | `stacked`, Rang |
+| --- | --- | --- | --- | --- |
+| Decision Tree | 0,45 (1,69) / 0,015 | 0,33 (1,23) / 0,018 | 0,00 (−0,03) / −0,002 | 0,33 (1,66) / 0,014 |
+| Random Forest | 0,43 (1,45) / 0,016 | 0,29 (0,99) / 0,016 | 0,68 (2,62) / 0,017 | 0,56 (2,07) / 0,023 |
+| XGBoost | 0,42 (1,56) / 0,017 | 0,38 (1,28) / 0,020 | 0,62 (2,40) / 0,017 | 0,37 (1,36) / 0,019 |
+| Investors | 0,42 (1,45) / 0,013 | 0,35 (1,18) / 0,015 | 0,64 (2,62) / 0,021 | 0,53 (1,97) / 0,021 |
+
+- **Nur der gestapelte Decision Tree profitiert** (0,33 statt 0,00 %): Mit
+  Rängen gibt er nicht mehr allen Aktien dieselbe Prognose. Alle anderen
+  Modelle haben mit Rängen eine **niedrigere H−L-Rendite**.
+- Der IC ist mit Rängen meist etwas höher: Die Modelle sortieren die
+  Aktien im Mittel etwas besser, aber nicht an den Rändern, auf die es für
+  Dezile und Strategien ankommt. Eine mögliche Erklärung: Ränge behandeln
+  den Unterschied zwischen der besten und der zehntbesten Aktie wie jeden
+  anderen, und extreme Renditen, die gerade in den äußeren Dezilen liegen,
+  verlieren ihr Gewicht.
+- Auch mit Rängen wählt die Validierung flache Bäume (gestapelter Decision
+  Tree im Mittel Tiefe 1,6).
+- Fazit: Die Rendite bleibt die bessere Zielgröße; der Rang behebt nur den
+  Sonderfall des gestapelten Decision Tree.
+
 ### Vergleich: Lewellens "large stocks" (`UNIVERSE = "large"`)
 
 Dieselben Läufe mit allen Stammaktien über dem NYSE-Median statt den 500
@@ -1527,7 +1615,7 @@ hier für OLS, −0,3 bis −1,3 für die Bäume (500 größte, `single`). Darü
 bis 2024, dass sich die Prognosekraft danach **nicht erholt** hat, und dass
 der Rückgang vor allem von der Short-Seite kommt.
 
-### Gu, Kelly & Xiu (2020): nicht bestätigt
+### Gu, Kelly & Xiu (2020): nur teilweise bestätigt
 
 GKX finden, dass Bäume die lineare Regression schlagen, weil sie
 nichtlineare Wechselwirkungen erfassen. Mit ihrem Vorgehen (gestapelte
@@ -1544,8 +1632,13 @@ Aktien:
 - Gestapelt schlagen Random Forest und XGBoost die gestapelte OLS bei den
   500 größten Aktien (0,68 % und 0,62 % gegenüber 0,59 %), bei den large
   stocks nicht (0,66 % und 0,47 % gegenüber 0,71 %).
-- **Gegen Lewellens eigenes Verfahren (OLS `single`) gewinnt kein
-  Baummodell**, in keiner der vier Einstellungen.
+- **Mit Validierung gewinnt gegen Lewellens eigenes Verfahren (OLS
+  `single`) kein Baummodell**, in keiner der vier Einstellungen.
+- **Mit den festen Standardwerten der Paper** (nur 500 größte gerechnet)
+  schlagen gestapelt XGBoost (0,77 %, t = 3,07) und Random Forest (0,73 %,
+  t = 2,75) beide OLS-Varianten, auch Lewellens OLS `single` (0,70 %). Das
+  ist der Befund von GKX: Bäume auf gestapelten Daten schlagen die lineare
+  Regression – hier allerdings knapp und nur in dieser Einstellung.
 - Im Modus `single` liegen die Bäume klar hinter OLS – ein Modell auf den
   Aktien eines einzigen Monats ist zu verrauscht, und die Validierung wählt
   entsprechend flache Bäume.
@@ -1553,11 +1646,13 @@ Aktien:
 Zum Vergleich die wertgewichteten H−L-Renditen bei GKX (Tabelle 7, alle
 Aktien, 1987–2016): OLS-3 0,94 %, Random Forest 1,62 %, Boosting 0,99 % pro
 Monat. Hier, wertgewichtet und gestapelt bei den 500 größten: OLS 0,67 %,
-Random Forest 0,70 %, XGBoost 0,50 % (OLS `single`: 0,84 %). GKX nutzen
+Random Forest 0,70 %, XGBoost 0,50 %; mit festen Werten Random Forest
+0,69 % und XGBoost 0,68 % (OLS `single`: 0,84 %). GKX nutzen
 94 Kennzahlen, deren Wechselwirkungen mit acht Makrovariablen und alle
 Aktien einschließlich der kleinen; die Zahlen sind daher nicht direkt
-vergleichbar. Mit 14 Kennzahlen und nur großen Aktien zeigt sich hier kein
-Vorsprung der Bäume.
+vergleichbar. Mit 14 Kennzahlen und nur großen Aktien zeigt sich hier
+höchstens ein kleiner Vorsprung der Bäume, gleichgewichtet und nur bei
+festen Hyperparametern.
 
 ### Bali, Kelly, Mörke & Rahman (2026): nicht repliziert
 
@@ -1579,10 +1674,12 @@ Investor.
 Die Replikation von Lewellen mit OLS gelingt in den Kernaussagen (Steigung,
 Verhältnis von realisiertem zu prognostiziertem Spread, Zeitverlauf); mit
 seiner Abgrenzung der large stocks stimmen sogar die t-Statistiken nahezu
-überein. Entscheidungsbäume schlagen OLS nicht: Werden ihre Hyperparameter
-wie bei Gu, Kelly & Xiu jedes Jahr auf einer Validierung gewählt, gewinnen
-fast immer flache Bäume, und kein Baummodell erreicht Lewellens OLS.
-Am nächsten kommen Random Forest und Investors auf gestapelten Daten.
+überein. Ob Entscheidungsbäume OLS schlagen, hängt an den
+Hyperparametern: Werden sie wie bei Gu, Kelly & Xiu jedes Jahr auf einer
+Validierung gewählt, gewinnen fast immer flache Bäume, und kein Baummodell
+erreicht Lewellens OLS. Mit den festen Standardwerten der Paper (Tiefe 3)
+schlagen XGBoost und Random Forest auf gestapelten Daten OLS knapp
+(500 größte Aktien). Ränge statt Renditen als Zielgröße helfen nicht.
 Seit 2009 bringt keines der Verfahren mehr eine Überrendite gegenüber
 Equal Weight (Prognosen bis 2024). Der Disagreement-Effekt ist unter großen, leicht
 leerverkaufbaren Aktien nicht vorhanden – was zu dem Mechanismus passt, den
@@ -1636,7 +1733,7 @@ Alle wichtigen Einstellungen stehen oben in `main.py`:
 | `TRAIN_WINDOW` | `120` | Fensterlänge in Monaten (zugleich die Mindesthistorie vor der ersten Prognose) |
 | `REFIT_EVERY` | `1` | nur `"stacked"`: alle wie viele Monate neu trainiert wird (1 = jeden Monat wie bei `"single"`; Gu, Kelly & Xiu: 12) |
 | `TARGET` | `"return"` | Zielgröße der Bäume: `"return"` (Rendite, wie Gu, Kelly & Xiu) oder `"rank"` (Rang der Rendite im Monat), siehe 2j; OLS lernt immer die Rendite. Bestimmt den Ordner `output/<TARGET>/` |
-| `TUNE_HYPERPARAMETERS` | `True` | Hyperparameter der Bäume jedes Jahr auf einer Validierung wählen (siehe 2i); `False`: die festen Werte aus `MODELS` |
+| `TUNE_HYPERPARAMETERS` | `False` | `False`: feste Standardwerte der Paper aus `MODELS` (siehe 2c), Ergebnisse in `output/<TARGET>_fixed/`; `True`: Hyperparameter der Bäume jedes Jahr auf einer Validierung wählen (siehe 2i), Ergebnisse in `output/<TARGET>/` |
 | `VALIDATION_MONTHS` | `36` | so viele jüngste Monate des Fensters dienen der Validierung, die übrigen 84 dem Training |
 | `RETUNE_EVERY` | `12` | alle wie viele Monate die Hyperparameter neu gewählt werden |
 | `TEST_START`, `TEST_END` | 1974–2013 | Prognosezeitraum (`TEST_END = None`: bis 2024) |
@@ -1705,7 +1802,7 @@ Ränge innerhalb dieser Stichprobe neu.
 
 ```
 output/
-├── return/                         TARGET = "return": Bäume lernen die Rendite (Standard)
+├── return/                         TARGET = "return", Hyperparameter mit Validierung gewählt
 │   ├── single/                     ESTIMATION = "single" (Standard), 1974–2013
 │   │   ├── predictions.csv.gz      alle Prognosen und die MFD: eine Zeile pro Monat und Aktie
 │   │   ├── predicted_return/       Auswertung der Renditeprognosen (Schritte 3–7)
@@ -1715,6 +1812,10 @@ output/
 │   ├── single_large/               UNIVERSE = "large", ESTIMATION = "single", 1974–2013
 │   ├── stacked_large/              UNIVERSE = "large", ESTIMATION = "stacked", 1974–2013
 │   └── summary/                    Vergleich der Läufe, erzeugt von summary.py
+├── return_fixed/                   TUNE_HYPERPARAMETERS = False: feste Standardwerte der Paper (siehe 2c)
+│   ├── single/                     500 größte, 1974–2013, gleicher Aufbau
+│   ├── stacked/                    500 größte, 1974–2013, gleicher Aufbau
+│   └── summary/                    python summary.py return_fixed
 └── rank/                           TARGET = "rank": Bäume lernen den Rang der Rendite (siehe 2j)
     ├── single/                     500 größte, 1974–2013, gleicher Aufbau
     ├── stacked/                    500 größte, 1974–2013, gleicher Aufbau

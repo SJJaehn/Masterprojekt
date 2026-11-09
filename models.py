@@ -118,20 +118,33 @@ class HuberBoosting(BaseEstimator, RegressorMixin):
 #   n_investors, feature_share   Investors: Anzahl der Investoren und Anteil der Charakteristika, den jeder sieht
 #   n_jobs=-1         alle Prozessorkerne nutzen (ändert nichts am Ergebnis)
 #   random_state      Startwert des Zufallsgenerators: gleiche Ergebnisse bei jedem Lauf
-# Die hier eingetragenen Werte gelten nur ohne Validierung (TUNE_HYPERPARAMETERS = False in main.py);
-# sonst werden Tiefe, Anzahl der Charakteristika je Frage usw. aus GRIDS gewählt.
+# Die hier eingetragenen Werte sind die Standardwerte aus den Papern, angepasst an unsere Daten. Sie gelten
+# ohne Validierung (TUNE_HYPERPARAMETERS = False in main.py); sonst werden Tiefe, Anzahl der Charakteristika
+# je Frage usw. aus GRIDS gewählt.
+#   - Tiefe 3: das MFD-Paper (Tabelle B1) nutzt Tiefe 3; bei Gu, Kelly & Xiu wählt der Random Forest
+#     "im Mittel ein bis fünf Ebenen" - 3 liegt in der Mitte. Gilt auch für den einzelnen Baum (dafür
+#     nennen die Paper keinen Wert).
+#   - max_features = 3: die Paper lassen bei jeder Frage nur einen kleinen Teil der Charakteristika zu
+#     (MFD-Paper 5 %, Gu, Kelly & Xiu 3 bis 50 von 920); bei 14 Charakteristika wären 5 % weniger als eine,
+#     daher 3 (etwa die Wurzel aus 14, der übliche Standard).
+#   - XGBoost: Tiefe 2, 500 Bäume, Lernrate 0,01 wie die Boosting-Variante im MFD-Paper (Tabelle C1,
+#     Konfiguration 18); alle drei Werte liegen im Raster von Gu, Kelly & Xiu. Huber-Verlust wie dort.
+#   - min_samples_leaf = 50 steht in keinem der Paper: Ein Monatsmodell sieht nur rund 500 Aktien, mit
+#     wenigen Aktien pro Blatt würde es vor allem Rauschen lernen.
 MODELS = {
     # Benchmark: die lineare Regression aus dem Paper (ohne Hyperparameter)
     "OLS": LinearRegression(),
     # ein einzelner Entscheidungsbaum
-    "DecisionTree": DecisionTreeRegressor(max_depth=5, min_samples_leaf=50, random_state=42),
+    "DecisionTree": DecisionTreeRegressor(max_depth=3, min_samples_leaf=50, random_state=42),
     # Mittel vieler unabhängiger Bäume (Bagging); 300 Bäume wie bei Gu, Kelly & Xiu
-    "RandomForest": RandomForestRegressor(n_estimators=300, max_depth=6, min_samples_leaf=50,
+    "RandomForest": RandomForestRegressor(n_estimators=300, max_depth=3, min_samples_leaf=50,
                                           max_features=3, n_jobs=-1, random_state=42),
     # Bäume nacheinander, jeder korrigiert die Fehler der vorigen (Boosting), mit Huber-Verlust
-    "XGBoost": HuberBoosting(n_estimators=300, max_depth=2, learning_rate=0.1, random_state=42),
+    "XGBoost": HuberBoosting(n_estimators=500, max_depth=2, learning_rate=0.01, random_state=42),
     # 100 simulierte Investoren, je ein Baum (Tiefe 3 wie im MFD-Paper) auf der Hälfte der Charakteristika;
-    # liefert zusätzlich die Disagreement (Standardabweichung der Investorprognosen)
+    # liefert zusätzlich die Disagreement (Standardabweichung der Investorprognosen). Im Paper ist jeder
+    # Investor ein Random Forest aus 2.000 Bäumen, jeder auf 5 % der Beobachtungen: Bei rund 500 Aktien
+    # pro Monat wären das 25 Aktien pro Baum - zu wenig für Tiefe 3. Daher ein Baum auf allen Aktien.
     "Investors": Investors(n_investors=100, feature_share=0.5, max_depth=3, min_samples_leaf=50, random_state=42),
 }
 
