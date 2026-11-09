@@ -53,7 +53,8 @@ TUNE_HYPERPARAMETERS = False # Hyperparameter der Bäume einmal im Jahr auf eine
                              #   (Ergebnisse dann in output/<TARGET>_fixed/)
 TARGET = "return"            # Zielgröße der Bäume: "return" (Rendite, wie Gu, Kelly & Xiu) oder "rank" (Rang der Rendite
                              #   im Monat auf [-0.5, 0.5]); OLS lernt immer die Rendite (Lewellen)
-VALIDATION_MONTHS = 36       # davon die letzten 36 Monate des Fensters zur Validierung, die ersten 84 zum Training
+VALIDATION_SHARE = 0.3       # Anteil des Fensters für die Validierung: die jüngsten 30 % (bei 120 Monaten: 36),
+                             #   die übrigen 70 % (84 Monate) zum Training
 RETUNE_EVERY = 12            # alle wie viele Monate die Hyperparameter neu gewählt werden (Paper: jedes Jahr)
 TEST_START = "1974-01-01"    # erster Prognosemonat (Paper: 1974)
 TEST_END = "2013-12-31"      # letzter Prognosemonat (Paper: 2013; None: bis zum Ende der Daten, 2024)
@@ -142,10 +143,11 @@ importances, chosen_hyperparameters = {}, []
 for name in MODELS_TO_RUN:
     target = y if name == "OLS" else y_trees
     if TUNE_HYPERPARAMETERS and name in models.GRIDS:
-        # Hyperparameter jedes Jahr auf den letzten VALIDATION_MONTHS Monaten des Fensters wählen
+        # Hyperparameter jedes Jahr auf den jüngsten VALIDATION_SHARE des Fensters wählen (in Monaten gerundet)
         forecast, model_importances, chosen = tuned_estimate(
             models.MODELS[name], models.GRIDS[name], X, target, month_nr, first, last, TRAIN_WINDOW,
-            validation=VALIDATION_MONTHS, retune_every=RETUNE_EVERY, expanding=WINDOW_TYPE == "expanding",
+            validation=round(VALIDATION_SHARE * TRAIN_WINDOW), retune_every=RETUNE_EVERY,
+            expanding=WINDOW_TYPE == "expanding",
             label=name, **options)
         chosen_hyperparameters += [{"model": name, "first_forecast_month": pd.Timestamp(dates[row["first_month_nr"]]),
                                     **row} for row in chosen]

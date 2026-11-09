@@ -596,7 +596,8 @@ Fenster vor dem Auswahltermin s (120 Monate):
 
 - **Einmal im Jahr** (`RETUNE_EVERY = 12`, erstmals Januar 1974) wird jede
   Einstellung aus `GRIDS` auf den ersten 84 Monaten des Fensters trainiert
-  und auf den letzten 36 (`VALIDATION_MONTHS`) geprüft.
+  und auf den letzten 36 geprüft (`VALIDATION_SHARE = 0.3`: die jüngsten
+  30 % des Fensters, in Monaten gerundet).
 - Die beste Einstellung gilt für die nächsten 12 Prognosemonate. Prognostiziert
   wird damit wie ohne Validierung: Das Modell lernt auf dem **ganzen** Fenster
   von 120 Monaten. Die Validierung entscheidet also nur über die Einstellung,
@@ -1736,7 +1737,7 @@ Alle wichtigen Einstellungen stehen oben in `main.py`:
 | `REFIT_EVERY` | `1` | nur `"stacked"`: alle wie viele Monate neu trainiert wird (1 = jeden Monat wie bei `"single"`; Gu, Kelly & Xiu: 12) |
 | `TARGET` | `"return"` | Zielgröße der Bäume: `"return"` (Rendite, wie Gu, Kelly & Xiu) oder `"rank"` (Rang der Rendite im Monat), siehe 2j; OLS lernt immer die Rendite. Bestimmt den Ordner `output/<TARGET>/` |
 | `TUNE_HYPERPARAMETERS` | `False` | `False`: feste Standardwerte der Paper aus `MODELS` (siehe 2c), Ergebnisse in `output/<TARGET>_fixed/`; `True`: Hyperparameter der Bäume jedes Jahr auf einer Validierung wählen (siehe 2i), Ergebnisse in `output/<TARGET>/` |
-| `VALIDATION_MONTHS` | `36` | so viele jüngste Monate des Fensters dienen der Validierung, die übrigen 84 dem Training |
+| `VALIDATION_SHARE` | `0.3` | Anteil des Fensters für die Validierung: die jüngsten 30 % (bei 120 Monaten 36), die übrigen 70 % (84) dienen dem Training; nur mit `TUNE_HYPERPARAMETERS = True` |
 | `RETUNE_EVERY` | `12` | alle wie viele Monate die Hyperparameter neu gewählt werden |
 | `TEST_START`, `TEST_END` | 1974–2013 | Prognosezeitraum (`TEST_END = None`: bis 2024) |
 | `MODELS_TO_RUN` | alle fünf | Liste der Modelle; ohne `"Investors"` entfällt Schritt 8 |
