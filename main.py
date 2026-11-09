@@ -292,10 +292,6 @@ for filename, table in results.items():
 universe_label = f"top {UNIVERSE_SIZE} stocks" if UNIVERSE == "top500" else f"{UNIVERSE} stocks"
 period = (f"{preds[DATE].min():%Y} - {preds[DATE].max():%Y}, {universe_label}, {ESTIMATION}, {WINDOW_TYPE}"
           + (", trees on return ranks" if TARGET == "rank" else ""))
-for label in STRATEGIES:  # eine Grafik pro Strategie: alle Modelle und Equal Weight
-    util.plot_performance(strategy[label].assign(**{"Equal Weight": equal_weight}),
-                          f"{label} by predicted return vs. equal weight ({period})",
-                          os.path.join(PRED_DIR, f"performance_{label.lower()}.png"))
 for window in [ROLLING_MONTHS, 120]:
     util.plot_time_variation(series, window, f"Predictive ability through time, {window}-month rolling mean "
                              f"({period})", os.path.join(PRED_DIR, f"time_variation_{window}m.png"))
@@ -369,3 +365,13 @@ if "MFD" in preds:
         util.plot_time_variation(mfd_series, window, f"Disagreement effect through time, {window}-month rolling "
                                  f"mean ({period})", os.path.join(MFD_DIR, f"time_variation_{window}m.png"))
     print(f"\n  Results saved to '{MFD_DIR}'")
+
+# Grafiken der Strategien (Schritt 6 und 8), eine pro Strategie: die Modelle ohne Investors (deren Prognose
+# steht in den Tabellen), dazu die Strategie nach der Disagreement (MFD) und Equal Weight
+for label in STRATEGIES:
+    lines = strategy[label].drop(columns="Investors", errors="ignore")
+    if "Investors" in MODELS_TO_RUN:
+        lines = lines.assign(MFD=mfd_strategy[(label, "MFD")])
+    util.plot_performance(lines.assign(**{"Equal Weight": equal_weight}),
+                          f"{label}: models and disagreement (MFD) vs. equal weight ({period})",
+                          os.path.join(PRED_DIR, f"performance_{label.lower()}.png"))

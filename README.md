@@ -918,6 +918,9 @@ Die Grafiken `performance_long.png`, `performance_short.png` und
 `performance_long-short.png` in `output/return/single/predicted_return/` zeigen die
 Wertentwicklung von 1 investierten Dollar je Modell gegen Equal Weight
 (logarithmische Skala: gleiche prozentuale Rendite ergibt gleiche Steigung).
+Statt der Investors-Prognose (sie steht in den Tabellen) zeigen sie die
+Strategie nach der Disagreement (MFD, Schritt 8): Long = geringste,
+Short = höchste Disagreement.
 Für Long-Short ist das eine Näherung: Man stellt sich vor, das Kapital liegt
 als Sicherheit und erhält zusätzlich die Long-Short-Rendite.
 
@@ -1742,7 +1745,7 @@ output/
 | `feature_importance.csv` | Feature Importances der Bäume |
 | `hyperparameters.csv` | gewählte Hyperparameter je Modell und Jahr mit dem Validierungsfehler (siehe 2i) |
 | `strategy_returns.csv`, `performance.csv` | Long, Short und Long-Short je Modell plus Equal Weight (Schritt 6) |
-| `performance_long.png`, `performance_short.png`, `performance_long-short.png` | Wertentwicklung je Strategie |
+| `performance_long.png`, `performance_short.png`, `performance_long-short.png` | Wertentwicklung je Strategie: die Modelle ohne Investors, dazu die MFD-Strategie und Equal Weight |
 | `time_variation_monthly.csv`, `time_variation_trends.csv` | Schritt 7: Kennzahlen pro Monat, Hälftenvergleich und Trendtest |
 | `time_variation_12m.png`, `time_variation_120m.png` | Schritt 7: gleitende Mittelwerte |
 
