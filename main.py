@@ -50,6 +50,8 @@ TRAIN_WINDOW = 120           # Fensterlänge in Monaten (Paper: 10 Jahre); bei "
 REFIT_EVERY = 1              # nur "stacked": Modell jeden Monat neu trainieren wie bei "single" (Gu, Kelly & Xiu: 12)
 TUNE_HYPERPARAMETERS = True  # Hyperparameter der Bäume einmal im Jahr auf einer Validierung wählen (Gu, Kelly & Xiu),
                              #   in beiden Verfahren gleich; False: feste Werte aus models.MODELS
+TARGET = "return"            # Zielgröße der Bäume: "return" (Rendite, wie Gu, Kelly & Xiu) oder "rank" (Rang der Rendite
+                             #   im Monat auf [-0.5, 0.5]); OLS lernt immer die Rendite (Lewellen)
 VALIDATION_MONTHS = 36       # davon die letzten 36 Monate des Fensters zur Validierung, die ersten 84 zum Training
 RETUNE_EVERY = 12            # alle wie viele Monate die Hyperparameter neu gewählt werden (Paper: jedes Jahr)
 TEST_START = "1974-01-01"    # erster Prognosemonat (Paper: 1974)
@@ -64,7 +66,8 @@ ROLLING_MONTHS = 12          # Schritt 7: gleitender Mittelwert (zusätzlich imm
 #   predicted_return/       Auswertung der Renditeprognosen wie im Paper (Tabellen 2, 3, 6, Strategie, Zeitverlauf)
 #   investor_disagreement/  dieselbe Auswertung für die Disagreement der Investoren (Schritt 8)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = os.path.join(BASE_DIR, "output", ESTIMATION if UNIVERSE == "top500" else f"{ESTIMATION}_{UNIVERSE}")
+OUTPUT_DIR = os.path.join(BASE_DIR, "output", TARGET,
+                          ESTIMATION if UNIVERSE == "top500" else f"{ESTIMATION}_{UNIVERSE}")
 PRED_DIR = os.path.join(OUTPUT_DIR, "predicted_return")
 MFD_DIR = os.path.join(OUTPUT_DIR, "investor_disagreement")
 for folder in [PRED_DIR, MFD_DIR]:
@@ -123,6 +126,10 @@ last = len(dates) - 1 if TEST_END is None else np.searchsorted(dates, np.datetim
 
 X = df[features].to_numpy(dtype=float)  # Charakteristika am Ende von Monat t
 y = df[RET].to_numpy(dtype=float)       # Rendite im Monat t + 1
+# Zielgröße der Bäume: die Rendite selbst oder ihr Rang im Monat. Ausgewertet wird immer mit der Rendite.
+y_trees = util.rank_returns(df) if TARGET == "rank" else y
+print(f"  Target of the trees: {'rank of the return within the month' if TARGET == 'rank' else 'return'}"
+      " (OLS: return)")
 
 # Ergebnistabelle: eine Zeile pro Prognosemonat und Aktie, eine Prognosespalte pro Modell
 is_test_row = (month_nr >= first) & (month_nr <= last)
@@ -132,16 +139,17 @@ tuned_estimate = models.tuned_fama_macbeth_forecast if ESTIMATION == "single" el
 options = {"refit_every": REFIT_EVERY} if ESTIMATION == "stacked" else {}
 importances, chosen_hyperparameters = {}, []
 for name in MODELS_TO_RUN:
+    target = y if name == "OLS" else y_trees
     if TUNE_HYPERPARAMETERS and name in models.GRIDS:
         # Hyperparameter jedes Jahr auf den letzten VALIDATION_MONTHS Monaten des Fensters wählen
         forecast, model_importances, chosen = tuned_estimate(
-            models.MODELS[name], models.GRIDS[name], X, y, month_nr, first, last, TRAIN_WINDOW,
+            models.MODELS[name], models.GRIDS[name], X, target, month_nr, first, last, TRAIN_WINDOW,
             validation=VALIDATION_MONTHS, retune_every=RETUNE_EVERY, expanding=WINDOW_TYPE == "expanding",
             label=name, **options)
         chosen_hyperparameters += [{"model": name, "first_forecast_month": pd.Timestamp(dates[row["first_month_nr"]]),
                                     **row} for row in chosen]
     else:
-        forecast, model_importances = estimate(models.MODELS[name], X, y, month_nr, first, last, TRAIN_WINDOW,
+        forecast, model_importances = estimate(models.MODELS[name], X, target, month_nr, first, last, TRAIN_WINDOW,
                                                expanding=WINDOW_TYPE == "expanding", label=name, **options)
     if name == "Investors":
         # eine Prognose pro Investor: deren Mittel ist die Prognose, deren Streuung die Disagreement
@@ -282,7 +290,8 @@ for filename, table in results.items():
     table.to_csv(os.path.join(PRED_DIR, filename))
 
 universe_label = f"top {UNIVERSE_SIZE} stocks" if UNIVERSE == "top500" else f"{UNIVERSE} stocks"
-period = f"{preds[DATE].min():%Y} - {preds[DATE].max():%Y}, {universe_label}, {ESTIMATION}, {WINDOW_TYPE}"
+period = (f"{preds[DATE].min():%Y} - {preds[DATE].max():%Y}, {universe_label}, {ESTIMATION}, {WINDOW_TYPE}"
+          + (", trees on return ranks" if TARGET == "rank" else ""))
 for label in STRATEGIES:  # eine Grafik pro Strategie: alle Modelle und Equal Weight
     util.plot_performance(strategy[label].assign(**{"Equal Weight": equal_weight}),
                           f"{label} by predicted return vs. equal weight ({period})",

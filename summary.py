@@ -1,11 +1,14 @@
 """
-Zusammenfassung aller Läufe in `output/`: eine CSV und Vergleichsgrafiken.
+Zusammenfassung aller Läufe einer Zielgröße: eine CSV und Vergleichsgrafiken.
 
-Liest die Ergebnisse, die `main.py` in `output/<Lauf>/` gespeichert hat - es
+    python summary.py         Läufe in output/return/ (Bäume lernen die Rendite)
+    python summary.py rank    Läufe in output/rank/   (Bäume lernen den Rang der Rendite)
+
+Liest die Ergebnisse, die `main.py` in `output/<Zielgröße>/<Lauf>/` gespeichert hat - es
 wird nichts neu geschätzt. Vorher muss `main.py` für die gewünschten
 Einstellungen gelaufen sein; fehlende Läufe werden übersprungen.
 
-Ausgabe in `output/summary/`:
+Ausgabe in `output/<Zielgröße>/summary/`:
 - summary.csv                        eine Zeile pro Lauf und Signal (Modell oder MFD)
 - hl_single_vs_stacked.png           H-L-Rendite single gegen stacked, mit 95-%-Intervall
 - strategy_return_sharpe.png         Rendite p. a. und Sharpe Ratio von Long, Short, Long-Short
@@ -14,6 +17,7 @@ Ausgabe in `output/summary/`:
 """
 
 import os
+import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,10 +26,11 @@ import pandas as pd
 import util
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+TARGET = sys.argv[1] if len(sys.argv) > 1 else "return"  # "return" oder "rank" (Einstellung TARGET in main.py)
+OUTPUT_DIR = os.path.join(BASE_DIR, "output", TARGET)
 SUMMARY_DIR = os.path.join(OUTPUT_DIR, "summary")
 
-# Läufe: Ordner in output/ -> (Universum, Schätzverfahren, Prognosezeitraum)
+# Läufe: Ordner in output/<Zielgröße>/ -> (Universum, Schätzverfahren, Prognosezeitraum)
 RUNS = {
     "single":            ("500 largest", "single",  "1974-2013"),
     "stacked":           ("500 largest", "stacked", "1974-2013"),
@@ -45,7 +50,7 @@ print(f"Runs found: {', '.join(RUNS)}")
 
 
 def read(run, folder, file, header=0, index_col=0):
-    """Eine CSV aus output/<run>/<folder>/ lesen."""
+    """Eine CSV aus output/<Zielgröße>/<run>/<folder>/ lesen."""
     path = os.path.join(OUTPUT_DIR, run, folder, file)
     return pd.read_csv(path, header=header, index_col=index_col)
 

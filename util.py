@@ -59,6 +59,16 @@ def rank_characteristics(df):
     return (ranks - 1) / (ranks.groupby(df["eom"]).transform("max") - 1) - 0.5
 
 
+def rank_returns(df):
+    """Rang der Rendite im Folgemonat innerhalb jedes Monats, skaliert auf [-0.5, 0.5] wie die Kennzahlen.
+
+    Zielgröße der Bäume bei TARGET = "rank": Der Baum lernt dann nur die Reihenfolge der Aktien,
+    nicht das Marktniveau des Monats und nicht die Höhe einzelner extremer Renditen.
+    """
+    ranks = df.groupby(DATE)[RET].rank(method="average")
+    return ((ranks - 1) / (ranks.groupby(df[DATE]).transform("max") - 1) - 0.5).to_numpy()
+
+
 def build_prepared_data(raw_path, prepared_path, universe="top1000", top_k=1000, years_before=25, years_after=5):
     """Erzeugt aus den JKP-Rohdaten (USA.parquet, 6 GB) die kleine CSV in data/.
 

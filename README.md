@@ -63,11 +63,15 @@ ebenso; mit den large stocks etwa 3 (`single`) bzw. 4–5 Stunden
 sind es etwa 13 Minuten. Zum schnellen Ausprobieren `MODELS_TO_RUN` in
 `main.py` auf weniger Modelle kürzen.
 
-Wenn mehrere Läufe in `output/` liegen, fasst `summary.py` sie zusammen (dauert
-nur Sekunden, es wird nichts neu geschätzt):
+Wenn mehrere Läufe in `output/return/` bzw. `output/rank/` liegen, fasst
+`summary.py` sie zusammen (dauert nur Sekunden, es wird nichts neu geschätzt):
 
 ```bash
 python summary.py
+```
+
+```bash
+python summary.py rank
 ```
 
 ## Aufbau des Projekts
@@ -77,8 +81,8 @@ python summary.py
 | `main.py` | **Hier anfangen.** Ein Skript, das von oben nach unten läuft: oben die Einstellungen, darunter die sieben Schritte, jeder unter einer eigenen Überschrift. |
 | `models.py` | Die Modelle mit ihren Hyperparametern, die simulierten Investoren und die beiden Schätzverfahren (Schritt 2) |
 | `util.py` | Werkzeugkasten: Datenaufbereitung, Fama-MacBeth-Regression, Newey-West-Test, Portfolios, Kennzahlen, Grafiken |
-| `summary.py` | Liest die Ergebnisse aller Läufe in `output/` und fasst sie in einer CSV und Vergleichsgrafiken zusammen (`output/summary/`) |
-| `output/` | Ergebnisse: `single/` (Standard), `stacked/`, `single_until_2024/`, `single_large/` und `stacked_large/`, jeweils mit `predicted_return/` und `investor_disagreement/` – siehe [Ausgabedateien](#ausgabedateien-in-output) |
+| `summary.py` | Liest die Ergebnisse aller Läufe einer Zielgröße und fasst sie in einer CSV und Vergleichsgrafiken zusammen (`output/return/summary/`, `output/rank/summary/`) |
+| `output/` | Ergebnisse, getrennt nach Zielgröße der Bäume: `return/` (Rendite, Standard) mit `single/`, `stacked/`, `single_until_2024/`, `single_large/`, `stacked_large/`; `rank/` (Rang der Rendite) mit `single/` und `stacked/`; jeweils mit `predicted_return/` und `investor_disagreement/` – siehe [Ausgabedateien](#ausgabedateien-in-output) |
 | `data/jkp_top1000_25y_5y_rank.csv.gz` | Vorbereitete Daten (aus den 6-GB-Rohdaten des Tutors erzeugt) |
 | `Thema 3 - Stock Return Prediction/` | MATLAB-Skripte des Tutors, an denen sich die Datenaufbereitung orientiert |
 | `ssrn-2511246.pdf` | Das Paper |
@@ -590,6 +594,45 @@ Rechenaufwand: Bei `single` wird jedes Monatsmodell für jede Einstellung nur
 einmal geschätzt und sowohl für die Validierung als auch für die Prognose
 genutzt. Bei `stacked` kommen pro Jahr die Modelle auf den 84 Monaten hinzu.
 
+### 2j) Zielgröße der Bäume: Rendite oder Rang (`TARGET`)
+
+Standardmäßig lernen die Bäume wie bei Gu, Kelly & Xiu die **Rendite** im
+Folgemonat (`TARGET = "return"`). Mit `TARGET = "rank"` lernen sie
+stattdessen den **Rang der Rendite innerhalb des Monats**, skaliert auf
+−0,5 (schlechteste Aktie des Monats) bis +0,5 (beste) – genauso wie die
+Kennzahlen:
+
+```python
+# Zielgröße der Bäume: die Rendite selbst oder ihr Rang im Monat. Ausgewertet wird immer mit der Rendite.
+y_trees = util.rank_returns(df) if TARGET == "rank" else y
+...
+target = y if name == "OLS" else y_trees
+```
+
+Warum das helfen kann:
+
+- **Das Marktniveau fällt weg.** Ob der Markt in einem Monat +8 % oder −8 %
+  macht, ist für die Sortierung der Aktien egal, macht aber einen großen
+  Teil des quadrierten Fehlers aus. Mit Rängen hat jeder Monat dasselbe
+  Niveau.
+- **Ausreißer fallen weg.** Eine Aktie, die sich verdreifacht, ist einfach
+  die beste des Monats (+0,5). Ein Blatt des Baums wird nicht mehr von
+  einzelnen extremen Renditen bestimmt.
+- **Das Ziel passt zur Auswertung.** Dezile, Strategien und IC hängen nur
+  von der Reihenfolge der Prognosen ab, nicht von ihrer Höhe.
+
+Alles andere bleibt gleich: dieselben Daten, Fenster, `GRIDS` und dieselbe
+Validierung; der Validierungsfehler wird dann auf den Rängen gemessen.
+**OLS lernt immer die Rendite**, damit Lewellen exakt repliziert bleibt.
+
+Wichtig beim Lesen der Ergebnisse: Die Prognosen der Bäume sind dann
+**erwartete Ränge, keine Renditen**. Vergleichbar mit dem Lauf auf
+Renditen sind alles, was nur von der Reihenfolge abhängt (H−L-Rendite,
+Long, Short, Long-Short, IC) sowie die t-Statistik der Steigung. Die Höhe
+der Prognosen (Avg, Std, Pred in den Dezilen), die Steigung selbst sowie
+RMSE, R² OOS und Hit rate sind in anderen Einheiten und nicht vergleichbar.
+Dasselbe gilt für die Höhe der MFD.
+
 ### 2e) Investors: 100 simulierte Investoren
 
 Das fünfte Modell stammt aus Bali, Kelly, Mörke & Rahman (2026), "Machine
@@ -872,7 +915,7 @@ wealth = (1 + returns).cumprod()
 | Max Drawdown | größter prozentualer Verlust vom bisherigen Höchststand |
 
 Die Grafiken `performance_long.png`, `performance_short.png` und
-`performance_long-short.png` in `output/single/predicted_return/` zeigen die
+`performance_long-short.png` in `output/return/single/predicted_return/` zeigen die
 Wertentwicklung von 1 investierten Dollar je Modell gegen Equal Weight
 (logarithmische Skala: gleiche prozentuale Rendite ergibt gleiche Steigung).
 Für Long-Short ist das eine Näherung: Man stellt sich vor, das Kapital liegt
@@ -1151,11 +1194,11 @@ Beobachtungen, die sich direkt aus den Zahlen ablesen lassen:
 - OLS hat keine Hyperparameter; seine Zahlen sind mit und ohne Validierung
   dieselben.
 
-**Wertentwicklung** (`output/single/predicted_return/`)
+**Wertentwicklung** (`output/return/single/predicted_return/`)
 
-![Long Top 10 % gegen Equal Weight](output/single/predicted_return/performance_long.png)
+![Long Top 10 % gegen Equal Weight](output/return/single/predicted_return/performance_long.png)
 
-![Long-Short gegen Equal Weight](output/single/predicted_return/performance_long-short.png)
+![Long-Short gegen Equal Weight](output/return/single/predicted_return/performance_long-short.png)
 
 **Schritt 7 – Entwicklung über die Zeit**
 
@@ -1182,9 +1225,9 @@ Beobachtungen, die sich direkt aus den Zahlen ablesen lassen:
 | | XGBoost | 0,45 | −0,04 | −0,50 (−1,82) | −0,29 (−2,40) |
 | | Investors | 0,41 | −0,02 | −0,43 (−1,68) | −0,28 (−2,52) |
 
-![Gleitender 10-Jahres-Mittelwert wie Lewellens Fig. 2](output/single/predicted_return/time_variation_120m.png)
+![Gleitender 10-Jahres-Mittelwert wie Lewellens Fig. 2](output/return/single/predicted_return/time_variation_120m.png)
 
-![Gleitender 12-Monats-Mittelwert](output/single/predicted_return/time_variation_12m.png)
+![Gleitender 12-Monats-Mittelwert](output/return/single/predicted_return/time_variation_12m.png)
 
 Was die Zahlen zeigen:
 
@@ -1220,7 +1263,7 @@ funktionieren, haben wir denselben Lauf mit Prognosen bis November 2024
 wiederholt (`TEST_END = None`). Alles andere ist unverändert; die Prognosen
 und die gewählten Hyperparameter für 1974–2013 sind identisch mit dem
 Hauptlauf. Alle Tabellen und Grafiken dieses Laufs liegen in
-**`output/single_until_2024/`**.
+**`output/return/single_until_2024/`**.
 
 Die entscheidende Frage ist der Zeitraum **2014–2024 (131 Monate)**, den
 das Paper nicht kennt. Mittelwerte pro Monat in % mit Newey-West-t-Statistik:
@@ -1247,7 +1290,7 @@ Strategien nur 2014–2024:
 | Investors | 7,83 % / 0,47 | −4,91 % / −0,17 |
 | Equal Weight | 10,05 % / 0,68 | |
 
-![Gleitender 10-Jahres-Mittelwert bis 2024](output/single_until_2024/predicted_return/time_variation_120m.png)
+![Gleitender 10-Jahres-Mittelwert bis 2024](output/return/single_until_2024/predicted_return/time_variation_120m.png)
 
 Was die Zahlen zeigen:
 
@@ -1265,7 +1308,7 @@ Was die Zahlen zeigen:
   (t zwischen −2,23 und −3,00), der der Short-Seite für alle außer dem
   Decision Tree (t zwischen −2,43 und −3,37); jetzt ist auch die Long-Seite
   bei allen Modellen außer dem Random Forest (t = −1,82) signifikant
-  rückläufig (`output/single_until_2024/predicted_return/time_variation_trends.csv`).
+  rückläufig (`output/return/single_until_2024/predicted_return/time_variation_trends.csv`).
 
 Einordnung: Gemessen wird die Überrendite gegenüber dem gleichgewichteten
 Portfolio der 500 größten Aktien, kein risikoadjustiertes Alpha (z. B.
@@ -1281,7 +1324,7 @@ Derselbe Zeitraum (1974–2013), aber jedes Modell lernt auf allen 120 Monaten
 zugleich (60 000 Zeilen). Es wird wie `single` jeden Monat neu trainiert,
 sieht also in jedem Monat genau dieselben Daten, und die Hyperparameter
 werden auf derselben Validierung gewählt. Alle Ergebnisse liegen in
-`output/stacked/`.
+`output/return/stacked/`.
 
 | Modell | Steigung Tab. 3 (t) – single | Steigung Tab. 3 (t) – stacked | H−L EW in % (t) – single | H−L EW in % (t) – stacked | Long-Short p. a. / Sharpe – stacked |
 | --- | --- | --- | --- | --- | --- |
@@ -1324,8 +1367,8 @@ werden auf derselben Validierung gewählt. Alle Ergebnisse liegen in
 Dieselben Läufe mit allen Stammaktien über dem NYSE-Median statt den 500
 größten – Lewellens Gruppe in Panel C (Einstellung und Daten siehe
 "Einstellungen ändern"). Im Prognosezeitraum sind es im Mittel **719 Aktien
-pro Monat** (Lewellen: 728 im Mittel seines ganzen Zeitraums). Ergebnisse in `output/single_large/` und
-`output/stacked_large/`, 1974–2013.
+pro Monat** (Lewellen: 728 im Mittel seines ganzen Zeitraums). Ergebnisse in `output/return/single_large/` und
+`output/return/stacked_large/`, 1974–2013.
 
 | Modell | Steigung (t) – single | Steigung (t) – stacked | H−L EW in % (t) – single | H−L EW in % (t) – stacked | Long-Short p. a. / Sharpe – single | Long-Short p. a. / Sharpe – stacked |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -1357,7 +1400,7 @@ Equal Weight: 7,87 % p. a., Sharpe 0,53; Long Top 10 % mit OLS: 12,79 % /
 
 ### Ergebnisse zu Schritt 8: Machine Forecast Disagreement
 
-Alle Zahlen in `output/<Lauf>/investor_disagreement/`. Sortierung wie oben
+Alle Zahlen in `output/return/<Lauf>/investor_disagreement/`. Sortierung wie oben
 erklärt: **High = geringste, Low = höchste Disagreement**; ein positives H−L
 entspräche dem Befund des Papers.
 
@@ -1589,6 +1632,7 @@ Alle wichtigen Einstellungen stehen oben in `main.py`:
 | `WINDOW_TYPE` | `"rolling"` | `"rolling"` (letzte 10 Jahre) oder `"expanding"` (alle Jahre seit 1964), siehe 2g |
 | `TRAIN_WINDOW` | `120` | Fensterlänge in Monaten (zugleich die Mindesthistorie vor der ersten Prognose) |
 | `REFIT_EVERY` | `1` | nur `"stacked"`: alle wie viele Monate neu trainiert wird (1 = jeden Monat wie bei `"single"`; Gu, Kelly & Xiu: 12) |
+| `TARGET` | `"return"` | Zielgröße der Bäume: `"return"` (Rendite, wie Gu, Kelly & Xiu) oder `"rank"` (Rang der Rendite im Monat), siehe 2j; OLS lernt immer die Rendite. Bestimmt den Ordner `output/<TARGET>/` |
 | `TUNE_HYPERPARAMETERS` | `True` | Hyperparameter der Bäume jedes Jahr auf einer Validierung wählen (siehe 2i); `False`: die festen Werte aus `MODELS` |
 | `VALIDATION_MONTHS` | `36` | so viele jüngste Monate des Fensters dienen der Validierung, die übrigen 84 dem Training |
 | `RETUNE_EVERY` | `12` | alle wie viele Monate die Hyperparameter neu gewählt werden |
@@ -1599,9 +1643,9 @@ Alle wichtigen Einstellungen stehen oben in `main.py`:
 
 Die Hyperparameter der Modelle stehen in `MODELS` in `models.py`, die
 Auswahl für die Validierung in `GRIDS`. Die
-Ergebnisse landen in `output/<ESTIMATION>`; für einen weiteren Lauf, der
+Ergebnisse landen in `output/<TARGET>/<ESTIMATION>`; für einen weiteren Lauf, der
 diese nicht überschreiben soll, `OUTPUT_DIR` in `main.py` auf einen anderen
-Ordner setzen (so ist `output/single_until_2024/` entstanden).
+Ordner setzen (so ist `output/return/single_until_2024/` entstanden).
 
 ### Lewellens "large stocks" (`UNIVERSE = "large"`)
 
@@ -1645,7 +1689,7 @@ Lauf aus den JKP-Rohdaten erzeugt; diese sind nicht im Repository. Einmalig:
 3. `data/jkp_large_rank.csv.gz` committen – danach braucht niemand mehr die
    Rohdaten.
 
-Die Ergebnisse landen in `output/single_large/` (bzw. `output/stacked_large/`).
+Die Ergebnisse landen in `output/return/single_large/` (bzw. `output/return/stacked_large/`).
 Die Datei enthält zusätzlich die Historie dieser Aktien: 25 Jahre vor und
 5 Jahre nach jedem Monat über dem NYSE-Median, soweit die Rohdaten sie enthalten,
 auch mit kleineren Größengruppen und ohne Rendite. Die Spalte `is_included` (1/0)
@@ -1658,18 +1702,23 @@ Ränge innerhalb dieser Stichprobe neu.
 
 ```
 output/
-├── single/                     ESTIMATION = "single" (Standard), 1974–2013
-│   ├── predictions.csv.gz      alle Prognosen und die MFD: eine Zeile pro Monat und Aktie
-│   ├── predicted_return/       Auswertung der Renditeprognosen (Schritte 3–7)
-│   └── investor_disagreement/  dieselbe Auswertung für die Disagreement (Schritt 8)
-├── stacked/                    ESTIMATION = "stacked", 1974–2013, gleicher Aufbau
-├── single_until_2024/          ESTIMATION = "single", Prognosen bis 2024, gleicher Aufbau
-├── single_large/               UNIVERSE = "large", ESTIMATION = "single", 1974–2013
-├── stacked_large/              UNIVERSE = "large", ESTIMATION = "stacked", 1974–2013
-└── summary/                    Vergleich aller Läufe, erzeugt von summary.py
+├── return/                         TARGET = "return": Bäume lernen die Rendite (Standard)
+│   ├── single/                     ESTIMATION = "single" (Standard), 1974–2013
+│   │   ├── predictions.csv.gz      alle Prognosen und die MFD: eine Zeile pro Monat und Aktie
+│   │   ├── predicted_return/       Auswertung der Renditeprognosen (Schritte 3–7)
+│   │   └── investor_disagreement/  dieselbe Auswertung für die Disagreement (Schritt 8)
+│   ├── stacked/                    ESTIMATION = "stacked", 1974–2013, gleicher Aufbau
+│   ├── single_until_2024/          ESTIMATION = "single", Prognosen bis 2024, gleicher Aufbau
+│   ├── single_large/               UNIVERSE = "large", ESTIMATION = "single", 1974–2013
+│   ├── stacked_large/              UNIVERSE = "large", ESTIMATION = "stacked", 1974–2013
+│   └── summary/                    Vergleich der Läufe, erzeugt von summary.py
+└── rank/                           TARGET = "rank": Bäume lernen den Rang der Rendite (siehe 2j)
+    ├── single/                     500 größte, 1974–2013, gleicher Aufbau
+    ├── stacked/                    500 größte, 1974–2013, gleicher Aufbau
+    └── summary/                    python summary.py rank
 ```
 
-**`summary/`** (`python summary.py`, liest nur die Ordner oben)
+**`summary/`** (`python summary.py` bzw. `python summary.py rank`, liest nur die Ordner oben)
 
 | Datei | Inhalt |
 | --- | --- |
@@ -1679,7 +1728,7 @@ output/
 | `wealth_long-short_top500.png`, `wealth_long-short_large.png` | Wertentwicklung Long-Short je Modell, `single` gegen `stacked`, mit Equal Weight |
 | `rolling_hl_top500.png`, `rolling_hl_large.png` | gleitender 10-Jahres-Mittelwert der H−L-Rendite je Modell, `single` gegen `stacked` |
 
-![H−L-Rendite single gegen stacked](output/summary/hl_single_vs_stacked.png)
+![H−L-Rendite single gegen stacked](output/return/summary/hl_single_vs_stacked.png)
 
 **`predicted_return/`**
 
