@@ -50,7 +50,7 @@ TRAIN_WINDOW = 120           # Fensterlänge in Monaten (Paper: 10 Jahre); bei "
 REFIT_EVERY = 1              # nur "stacked": Modell jeden Monat neu trainieren wie bei "single" (Gu, Kelly & Xiu: 12)
 TUNE_HYPERPARAMETERS = False # Hyperparameter der Bäume einmal im Jahr auf einer Validierung wählen (Gu, Kelly & Xiu),
                              #   in beiden Verfahren gleich; False: Standardwerte der Paper aus models.MODELS
-                             #   (Ergebnisse dann in output/<TARGET>_fixed/)
+                             #   (Ergebnisordner siehe unten, vor Schritt 2)
 TARGET = "return"            # Zielgröße der Bäume: "return" (Rendite, wie Gu, Kelly & Xiu) oder "rank" (Rang der Rendite
                              #   im Monat auf [-0.5, 0.5]); OLS lernt immer die Rendite (Lewellen)
 VALIDATION_SHARE = 0.3       # Anteil des Fensters für die Validierung: die jüngsten 30 % (bei 120 Monaten: 36),
@@ -64,16 +64,7 @@ LONG_PCT = 0.10              # Strategien: Kauf der besten 10 % der Aktien (höc
 SHORT_PCT = 0.10             #   und Leerverkauf der schlechtesten 10 %; gerechnet werden Long, Short und beides
 ROLLING_MONTHS = 12          # Schritt 7: gleitender Mittelwert (zusätzlich immer 120 Monate wie in Fig. 2)
 
-# Ergebnisse: output/single oder output/stacked, darin je ein Ordner für die beiden Signale:
-#   predicted_return/       Auswertung der Renditeprognosen wie im Paper (Tabellen 2, 3, 6, Strategie, Zeitverlauf)
-#   investor_disagreement/  dieselbe Auswertung für die Disagreement der Investoren (Schritt 8)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = os.path.join(BASE_DIR, "output", TARGET if TUNE_HYPERPARAMETERS else f"{TARGET}_fixed",
-                          ESTIMATION if UNIVERSE == "top500" else f"{ESTIMATION}_{UNIVERSE}")
-PRED_DIR = os.path.join(OUTPUT_DIR, "predicted_return")
-MFD_DIR = os.path.join(OUTPUT_DIR, "investor_disagreement")
-for folder in [PRED_DIR, MFD_DIR]:
-    os.makedirs(folder, exist_ok=True)
 
 
 # =============================================================================
@@ -125,6 +116,20 @@ dates = np.sort(df[DATE].unique())
 month_nr = np.searchsorted(dates, df[DATE].to_numpy())
 first = max(TRAIN_WINDOW, np.searchsorted(dates, np.datetime64(TEST_START)))
 last = len(dates) - 1 if TEST_END is None else np.searchsorted(dates, np.datetime64(TEST_END), side="right") - 1
+
+# Ergebnisordner: output/results/<Hyperparameter>/<Zielgröße>/<Prognosejahre>/<Universum>/<Schätzverfahren>
+#   Hyperparameter: "grid" (jährlich auf der Validierung gewählt) oder "fixed_leaf<min_samples_leaf>" (feste Werte)
+#   z. B. output/results/fixed_leaf25/return/1974-2013/top500/single
+# darin je ein Ordner für die beiden Signale:
+#   predicted_return/       Auswertung der Renditeprognosen wie im Paper (Tabellen 2, 3, 6, Strategie, Zeitverlauf)
+#   investor_disagreement/  dieselbe Auswertung für die Disagreement der Investoren (Schritt 8)
+setup = "grid" if TUNE_HYPERPARAMETERS else f"fixed_leaf{models.MODELS['DecisionTree'].min_samples_leaf}"
+years = f"{pd.Timestamp(dates[first]):%Y}-{pd.Timestamp(dates[last]):%Y}"
+OUTPUT_DIR = os.path.join(BASE_DIR, "output", "results", setup, TARGET, years, UNIVERSE, ESTIMATION)
+PRED_DIR = os.path.join(OUTPUT_DIR, "predicted_return")
+MFD_DIR = os.path.join(OUTPUT_DIR, "investor_disagreement")
+for folder in [PRED_DIR, MFD_DIR]:
+    os.makedirs(folder, exist_ok=True)
 
 X = df[features].to_numpy(dtype=float)  # Charakteristika am Ende von Monat t
 y = df[RET].to_numpy(dtype=float)       # Rendite im Monat t + 1

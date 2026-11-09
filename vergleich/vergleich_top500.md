@@ -1,7 +1,7 @@
 # Vergleich der Ergebnisse – 500 größte Aktien, 1974–2013
 
 - **02.11.:** Stand vom 2. November (Commit `a15b766`): feste Hyperparameter, `stacked` jährlich neu trainiert.
-- **09.11.:** aktueller Stand (`output/return/`): Hyperparameter jährlich auf einer Validierung gewählt, Huber-Verlust für XGBoost, `stacked` monatlich neu trainiert.
+- **09.11.:** aktueller Stand (`output/results/grid/return/`): Hyperparameter jährlich auf einer Validierung gewählt, Huber-Verlust für XGBoost, `stacked` monatlich neu trainiert.
 - t-Statistiken in Klammern (Newey-West). **Investors** = Mittel der Renditeprognosen der 100 Investoren; **MFD** = Disagreement (Dezile/Strategien nach MFD, High = geringste Disagreement; Steigung aus der FM-Regression auf die MFD).
 
 ## 1. Single: 02.11. gegen 09.11.
@@ -34,25 +34,25 @@ Equal Weight: 02.11. 7.23 % / 0.51, 09.11. 7.23 % / 0.51
 
 | 02.11. | 09.11. |
 | --- | --- |
-| ![](stand_02-11/single/predicted_return/performance_long-short.png) | ![](../output/return/single/predicted_return/performance_long-short.png) |
+| ![](stand_02-11/single/predicted_return/performance_long-short.png) | ![](../output/results/grid/return/1974-2013/top500/single/predicted_return/performance_long-short.png) |
 
 **Long Top 10 % gegen Equal Weight**
 
 | 02.11. | 09.11. |
 | --- | --- |
-| ![](stand_02-11/single/predicted_return/performance_long.png) | ![](../output/return/single/predicted_return/performance_long.png) |
+| ![](stand_02-11/single/predicted_return/performance_long.png) | ![](../output/results/grid/return/1974-2013/top500/single/predicted_return/performance_long.png) |
 
 **Zeitverlauf, gleitender 10-Jahres-Mittelwert**
 
 | 02.11. | 09.11. |
 | --- | --- |
-| ![](stand_02-11/single/predicted_return/time_variation_120m.png) | ![](../output/return/single/predicted_return/time_variation_120m.png) |
+| ![](stand_02-11/single/predicted_return/time_variation_120m.png) | ![](../output/results/grid/return/1974-2013/top500/single/predicted_return/time_variation_120m.png) |
 
 **Disagreement: Strategien**
 
 | 02.11. | 09.11. |
 | --- | --- |
-| ![](stand_02-11/single/investor_disagreement/performance.png) | ![](../output/return/single/investor_disagreement/performance.png) |
+| ![](stand_02-11/single/investor_disagreement/performance.png) | ![](../output/results/grid/return/1974-2013/top500/single/investor_disagreement/performance.png) |
 
 ## 2. Stacked: 02.11. gegen 09.11.
 
@@ -84,25 +84,25 @@ Equal Weight: 02.11. 7.23 % / 0.51, 09.11. 7.23 % / 0.51
 
 | 02.11. | 09.11. |
 | --- | --- |
-| ![](stand_02-11/stacked/predicted_return/performance_long-short.png) | ![](../output/return/stacked/predicted_return/performance_long-short.png) |
+| ![](stand_02-11/stacked/predicted_return/performance_long-short.png) | ![](../output/results/grid/return/1974-2013/top500/stacked/predicted_return/performance_long-short.png) |
 
 **Long Top 10 % gegen Equal Weight**
 
 | 02.11. | 09.11. |
 | --- | --- |
-| ![](stand_02-11/stacked/predicted_return/performance_long.png) | ![](../output/return/stacked/predicted_return/performance_long.png) |
+| ![](stand_02-11/stacked/predicted_return/performance_long.png) | ![](../output/results/grid/return/1974-2013/top500/stacked/predicted_return/performance_long.png) |
 
 **Zeitverlauf, gleitender 10-Jahres-Mittelwert**
 
 | 02.11. | 09.11. |
 | --- | --- |
-| ![](stand_02-11/stacked/predicted_return/time_variation_120m.png) | ![](../output/return/stacked/predicted_return/time_variation_120m.png) |
+| ![](stand_02-11/stacked/predicted_return/time_variation_120m.png) | ![](../output/results/grid/return/1974-2013/top500/stacked/predicted_return/time_variation_120m.png) |
 
 **Disagreement: Strategien**
 
 | 02.11. | 09.11. |
 | --- | --- |
-| ![](stand_02-11/stacked/investor_disagreement/performance.png) | ![](../output/return/stacked/investor_disagreement/performance.png) |
+| ![](stand_02-11/stacked/investor_disagreement/performance.png) | ![](../output/results/grid/return/1974-2013/top500/stacked/investor_disagreement/performance.png) |
 
 ## 3. Single gegen Stacked (Stand 09.11.)
 
@@ -136,32 +136,32 @@ Equal Weight: single 7.23 % / 0.51, stacked 7.23 % / 0.51
 
 **Long-Short: Wertentwicklung**
 
-![](../output/return/summary/wealth_long-short_top500.png)
+![](../output/results/grid/return/summary/wealth_long-short_top500.png)
 
 **H−L-Rendite, gleitender 10-Jahres-Mittelwert**
 
-![](../output/return/summary/rolling_hl_top500.png)
+![](../output/results/grid/return/summary/rolling_hl_top500.png)
 
 **Long-Short gegen Equal Weight**
 
 | single | stacked |
 | --- | --- |
-| ![](../output/return/single/predicted_return/performance_long-short.png) | ![](../output/return/stacked/predicted_return/performance_long-short.png) |
+| ![](../output/results/grid/return/1974-2013/top500/single/predicted_return/performance_long-short.png) | ![](../output/results/grid/return/1974-2013/top500/stacked/predicted_return/performance_long-short.png) |
 
 **Long Top 10 % gegen Equal Weight**
 
 | single | stacked |
 | --- | --- |
-| ![](../output/return/single/predicted_return/performance_long.png) | ![](../output/return/stacked/predicted_return/performance_long.png) |
+| ![](../output/results/grid/return/1974-2013/top500/single/predicted_return/performance_long.png) | ![](../output/results/grid/return/1974-2013/top500/stacked/predicted_return/performance_long.png) |
 
 **Zeitverlauf, gleitender 10-Jahres-Mittelwert**
 
 | single | stacked |
 | --- | --- |
-| ![](../output/return/single/predicted_return/time_variation_120m.png) | ![](../output/return/stacked/predicted_return/time_variation_120m.png) |
+| ![](../output/results/grid/return/1974-2013/top500/single/predicted_return/time_variation_120m.png) | ![](../output/results/grid/return/1974-2013/top500/stacked/predicted_return/time_variation_120m.png) |
 
 **Disagreement: Strategien**
 
 | single | stacked |
 | --- | --- |
-| ![](../output/return/single/investor_disagreement/performance.png) | ![](../output/return/stacked/investor_disagreement/performance.png) |
+| ![](../output/results/grid/return/1974-2013/top500/single/investor_disagreement/performance.png) | ![](../output/results/grid/return/1974-2013/top500/stacked/investor_disagreement/performance.png) |

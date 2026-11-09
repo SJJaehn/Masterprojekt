@@ -1,14 +1,17 @@
 """
-Zusammenfassung aller Läufe einer Zielgröße: eine CSV und Vergleichsgrafiken.
+Zusammenfassung aller Läufe einer Einstellung: eine CSV und Vergleichsgrafiken.
 
-    python summary.py         Läufe in output/return/ (Bäume lernen die Rendite)
-    python summary.py rank    Läufe in output/rank/   (Bäume lernen den Rang der Rendite)
+    python summary.py                          output/results/grid/return/
+    python summary.py grid rank                output/results/grid/rank/
+    python summary.py fixed_leaf25 return      output/results/fixed_leaf25/return/
 
-Liest die Ergebnisse, die `main.py` in `output/<Zielgröße>/<Lauf>/` gespeichert hat - es
+Erstes Argument: Hyperparameter ("grid" oder "fixed_leaf<min_samples_leaf>"), zweites: Zielgröße
+der Bäume ("return" oder "rank"). Liest die Ergebnisse, die `main.py` darunter in
+`<Prognosejahre>/<Universum>/<Schätzverfahren>/` gespeichert hat - es
 wird nichts neu geschätzt. Vorher muss `main.py` für die gewünschten
 Einstellungen gelaufen sein; fehlende Läufe werden übersprungen.
 
-Ausgabe in `output/<Zielgröße>/summary/`:
+Ausgabe in `output/results/<Hyperparameter>/<Zielgröße>/summary/`:
 - summary.csv                        eine Zeile pro Lauf und Signal (Modell oder MFD)
 - hl_single_vs_stacked.png           H-L-Rendite single gegen stacked, mit 95-%-Intervall
 - strategy_return_sharpe.png         Rendite p. a. und Sharpe Ratio von Long, Short, Long-Short
@@ -26,11 +29,12 @@ import pandas as pd
 import util
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TARGET = sys.argv[1] if len(sys.argv) > 1 else "return"  # "return" oder "rank" (Einstellung TARGET in main.py)
-OUTPUT_DIR = os.path.join(BASE_DIR, "output", TARGET)
+SETUP = sys.argv[1] if len(sys.argv) > 1 else "grid"     # "grid" oder "fixed_leaf<min_samples_leaf>"
+TARGET = sys.argv[2] if len(sys.argv) > 2 else "return"  # "return" oder "rank" (Einstellung TARGET in main.py)
+OUTPUT_DIR = os.path.join(BASE_DIR, "output", "results", SETUP, TARGET)
 SUMMARY_DIR = os.path.join(OUTPUT_DIR, "summary")
 
-# Läufe: Ordner in output/<Zielgröße>/ -> (Universum, Schätzverfahren, Prognosezeitraum)
+# Läufe: Name -> (Universum, Schätzverfahren, Prognosezeitraum); Ordner <Zeitraum>/<Universum>/<Verfahren>
 RUNS = {
     "single":            ("500 largest", "single",  "1974-2013"),
     "stacked":           ("500 largest", "stacked", "1974-2013"),
@@ -38,20 +42,27 @@ RUNS = {
     "stacked_large":     ("large stocks", "stacked", "1974-2013"),
     "single_until_2024": ("500 largest", "single",  "1974-2024"),
 }
+UNIVERSE_FOLDERS = {"500 largest": "top500", "large stocks": "large"}
+
+
+def run_dir(run):
+    universe, estimation, period = RUNS[run]
+    return os.path.join(OUTPUT_DIR, period, UNIVERSE_FOLDERS[universe], estimation)
+
 SIGNALS = ["OLS", "DecisionTree", "RandomForest", "XGBoost", "Investors", "MFD"]
 STRATEGIES = ["Long", "Short", "Long-Short"]
 UNIVERSES = ["500 largest", "large stocks"]
 ESTIMATION_COLORS = {"single": util.COLORS[0], "stacked": util.COLORS[1]}  # Farbe = Schätzverfahren
 ROLLING_MONTHS = 120  # wie Lewellens Fig. 2
 
-RUNS = {name: info for name, info in RUNS.items() if os.path.isdir(os.path.join(OUTPUT_DIR, name))}
+RUNS = {name: info for name, info in RUNS.items() if os.path.isdir(run_dir(name))}
 os.makedirs(SUMMARY_DIR, exist_ok=True)
 print(f"Runs found: {', '.join(RUNS)}")
 
 
 def read(run, folder, file, header=0, index_col=0):
-    """Eine CSV aus output/<Zielgröße>/<run>/<folder>/ lesen."""
-    path = os.path.join(OUTPUT_DIR, run, folder, file)
+    """Eine CSV aus dem Ordner eines Laufs lesen (Unterordner `folder`)."""
+    path = os.path.join(run_dir(run), folder, file)
     return pd.read_csv(path, header=header, index_col=index_col)
 
 
