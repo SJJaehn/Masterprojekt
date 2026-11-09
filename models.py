@@ -130,8 +130,8 @@ class HuberBoosting(BaseEstimator, RegressorMixin):
 #   - XGBoost: Tiefe 2, 500 Bäume, Lernrate 0,01 wie die Boosting-Variante im MFD-Paper (Tabelle C1,
 #     Konfiguration 18); alle drei Werte liegen im Raster von Gu, Kelly & Xiu. Huber-Verlust wie dort.
 #   - min_samples_leaf = 25 steht in keinem der Paper: Ein Monatsmodell sieht nur rund 500 Aktien, mit
-#     sehr wenigen Aktien pro Blatt würde es vor allem Rauschen lernen. (Die Ergebnisse in output/
-#     sind noch mit 50 gerechnet.)
+#     sehr wenigen Aktien pro Blatt würde es vor allem Rauschen lernen. (output/return_fixed/ ist mit 25
+#     gerechnet, output/return/ und output/rank/ noch mit 50.)
 MODELS = {
     # Benchmark: die lineare Regression aus dem Paper (ohne Hyperparameter)
     "OLS": LinearRegression(),

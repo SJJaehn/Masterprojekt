@@ -416,9 +416,9 @@ GRIDS = {
   allen Aktien (siehe 2e).
 - **`min_samples_leaf = 25`** steht in keinem der Paper: Ein Monatsmodell
   sieht nur rund 500 Aktien; mit sehr wenigen Aktien pro Blatt würde es vor
-  allem Rauschen lernen. **Alle Ergebnisse in dieser README und in
-  `output/` sind noch mit `min_samples_leaf = 50` gerechnet**; 25 gilt ab
-  dem nächsten Lauf.
+  allem Rauschen lernen. Die Läufe mit festen Werten (`output/return_fixed/`)
+  sind mit 25 gerechnet, **alle übrigen Ergebnisse (`output/return/`,
+  `output/rank/`) noch mit 50**.
 | `n_jobs = -1` | alle Prozessorkerne nutzen (ändert nichts am Ergebnis) | | |
 | `random_state` | Startwert des Zufallsgenerators: jeder Lauf liefert dieselben Zahlen | 42 | |
 
@@ -1400,29 +1400,31 @@ werden auf derselben Validierung gewählt. Alle Ergebnisse liegen in
 
 Dieselben beiden Läufe (500 größte Aktien, 1974–2013), aber ohne jährliche
 Wahl der Hyperparameter: Die Bäume nutzen die festen Standardwerte aus den
-Papern (siehe 2c). OLS ist in beiden Fällen identisch. Ergebnisse in
-`output/return_fixed/`.
+Papern (siehe 2c), mit `min_samples_leaf = 25`; die Läufe mit Validierung
+sind noch mit 50 gerechnet. OLS ist in beiden Fällen identisch. Ergebnisse
+in `output/return_fixed/`.
 
 | H−L EW in % (t) / Long-Short p. a., Sharpe | `single`, Validierung | `single`, fest | `stacked`, Validierung | `stacked`, fest |
 | --- | --- | --- | --- | --- |
 | OLS | 0,70 (2,58) / 6,79 %, 0,44 | 0,70 (2,58) / 6,79 %, 0,44 | 0,59 (2,24) / 5,55 %, 0,38 | 0,59 (2,24) / 5,55 %, 0,38 |
-| Decision Tree | 0,45 (1,69) / 3,66 %, 0,28 | 0,44 (1,59) / 3,40 %, 0,27 | 0,00 (−0,03) / −0,56 %, 0,01 | 0,25 (1,45) / 3,38 %, 0,30 |
-| Random Forest | 0,43 (1,45) / 3,11 %, 0,25 | 0,40 (1,34) / 2,77 %, 0,24 | 0,68 (2,62) / 6,45 %, 0,42 | 0,73 (2,75) / 7,21 %, 0,45 |
+| Decision Tree | 0,45 (1,69) / 3,66 %, 0,28 | 0,39 (1,38) / 2,68 %, 0,23 | 0,00 (−0,03) / −0,56 %, 0,01 | 0,26 (1,54) / 3,73 %, 0,34 |
+| Random Forest | 0,43 (1,45) / 3,11 %, 0,25 | 0,36 (1,20) / 2,21 %, 0,21 | 0,68 (2,62) / 6,45 %, 0,42 | 0,74 (2,77) / 7,36 %, 0,46 |
 | XGBoost | 0,42 (1,56) / 3,22 %, 0,26 | 0,58 (2,13) / 5,17 %, 0,35 | 0,62 (2,40) / 4,92 %, 0,34 | **0,77 (3,07) / 7,77 %, 0,49** |
-| Investors | 0,42 (1,45) / 3,05 %, 0,25 | 0,45 (1,54) / 3,38 %, 0,26 | 0,64 (2,62) / 6,19 %, 0,41 | 0,58 (2,29) / 5,17 %, 0,35 |
+| Investors | 0,42 (1,45) / 3,05 %, 0,25 | 0,40 (1,37) / 2,81 %, 0,24 | 0,64 (2,62) / 6,19 %, 0,41 | 0,54 (2,18) / 4,77 %, 0,33 |
 
 - **Gestapelt mit festen Werten schlagen XGBoost und Random Forest beide
   OLS-Varianten:** XGBoost 0,77 % pro Monat (t = 3,07), Long-Short 7,8 % p. a.
-  mit Sharpe 0,49; Random Forest 0,73 % (t = 2,75). Lewellens OLS (`single`)
+  mit Sharpe 0,49; Random Forest 0,74 % (t = 2,77). Lewellens OLS (`single`)
   kommt auf 0,70 % und 6,8 % / 0,44. Beide Seiten tragen bei: Long-Seite
   0,41 % (t = 2,55) und Short-Seite 0,36 % (t = 2,45) bei XGBoost.
 - Die feste Tiefe 3 ist tiefer als die meist gewählte Tiefe 1–2. Damit
   bestätigt sich, was die Analyse der Validierung zeigt ("Gewählte
   Hyperparameter"): Die Auswahl nach dem quadrierten Fehler macht die
   gestapelten Bäume zu flach; besonders sichtbar beim einzelnen Decision
-  Tree (0,25 % statt 0,00 %).
-- Im Modus `single` ändert sich wenig; nur XGBoost wird mit festen Werten
-  deutlich besser (0,58 % statt 0,42 %).
+  Tree (0,26 % statt 0,00 %).
+- Im Modus `single` wird nur XGBoost mit festen Werten deutlich besser
+  (0,58 % statt 0,42 %); Decision Tree, Random Forest und Investors werden
+  etwas schwächer (0,36–0,40 % statt 0,42–0,45 %).
 - Die festen Werte stammen aus den Papern, nicht aus unseren Testdaten –
   sie sind also nicht nachträglich auf die Ergebnisse abgestimmt. Es ist
   aber nur eine Einstellung; wie stark die Ergebnisse davon abhängen, zeigt
@@ -1638,8 +1640,8 @@ Aktien:
 - **Mit Validierung gewinnt gegen Lewellens eigenes Verfahren (OLS
   `single`) kein Baummodell**, in keiner der vier Einstellungen.
 - **Mit den festen Standardwerten der Paper** (nur 500 größte gerechnet)
-  schlagen gestapelt XGBoost (0,77 %, t = 3,07) und Random Forest (0,73 %,
-  t = 2,75) beide OLS-Varianten, auch Lewellens OLS `single` (0,70 %). Das
+  schlagen gestapelt XGBoost (0,77 %, t = 3,07) und Random Forest (0,74 %,
+  t = 2,77) beide OLS-Varianten, auch Lewellens OLS `single` (0,70 %). Das
   ist der Befund von GKX: Bäume auf gestapelten Daten schlagen die lineare
   Regression – hier allerdings knapp und nur in dieser Einstellung.
 - Im Modus `single` liegen die Bäume klar hinter OLS – ein Modell auf den
@@ -1650,7 +1652,7 @@ Zum Vergleich die wertgewichteten H−L-Renditen bei GKX (Tabelle 7, alle
 Aktien, 1987–2016): OLS-3 0,94 %, Random Forest 1,62 %, Boosting 0,99 % pro
 Monat. Hier, wertgewichtet und gestapelt bei den 500 größten: OLS 0,67 %,
 Random Forest 0,70 %, XGBoost 0,50 %; mit festen Werten Random Forest
-0,69 % und XGBoost 0,68 % (OLS `single`: 0,84 %). GKX nutzen
+0,65 % und XGBoost 0,68 % (OLS `single`: 0,84 %). GKX nutzen
 94 Kennzahlen, deren Wechselwirkungen mit acht Makrovariablen und alle
 Aktien einschließlich der kleinen; die Zahlen sind daher nicht direkt
 vergleichbar. Mit 14 Kennzahlen und nur großen Aktien zeigt sich hier
