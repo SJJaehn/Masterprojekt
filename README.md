@@ -367,14 +367,14 @@ MODELS = {
     # Benchmark: die lineare Regression aus dem Paper (ohne Hyperparameter)
     "OLS": LinearRegression(),
     # ein einzelner Entscheidungsbaum
-    "DecisionTree": DecisionTreeRegressor(max_depth=3, min_samples_leaf=50, random_state=42),
+    "DecisionTree": DecisionTreeRegressor(max_depth=3, min_samples_leaf=25, random_state=42),
     # Mittel vieler unabhängiger Bäume (Bagging); 300 Bäume wie bei Gu, Kelly & Xiu
-    "RandomForest": RandomForestRegressor(n_estimators=300, max_depth=3, min_samples_leaf=50,
+    "RandomForest": RandomForestRegressor(n_estimators=300, max_depth=3, min_samples_leaf=25,
                                           max_features=3, n_jobs=-1, random_state=42),
     # Bäume nacheinander, jeder korrigiert die Fehler der vorigen (Boosting), mit Huber-Verlust
     "XGBoost": HuberBoosting(n_estimators=500, max_depth=2, learning_rate=0.01, random_state=42),
     # 100 simulierte Investoren, je ein Baum auf der Hälfte der Charakteristika (siehe 2e)
-    "Investors": Investors(n_investors=100, feature_share=0.5, max_depth=3, min_samples_leaf=50, random_state=42),
+    "Investors": Investors(n_investors=100, feature_share=0.5, max_depth=3, min_samples_leaf=25, random_state=42),
 }
 
 # Mögliche Werte, aus denen jedes Jahr auf der Validierung gewählt wird (Gu, Kelly & Xiu,
@@ -390,7 +390,7 @@ GRIDS = {
 | Hyperparameter | Bedeutung | fester Standardwert | mit Validierung gewählt aus |
 | --- | --- | --- | --- |
 | `max_depth` | höchstens so viele Fragen hintereinander | Baum, Forest, Investors 3; XGBoost 2 | Baum, Forest, Investors 1–6; XGBoost 1–2 |
-| `min_samples_leaf` | mindestens so viele Aktien pro Endgruppe – die Prognose ist also immer ein Durchschnitt über ≥ 50 Aktien | 50 | (immer 50) |
+| `min_samples_leaf` | mindestens so viele Aktien pro Endgruppe – die Prognose ist also immer ein Durchschnitt über ≥ 25 Aktien | 25 | (immer 25) |
 | `n_estimators` | Anzahl der Bäume | Forest 300; XGBoost 500 | Forest 300; XGBoost 100 oder 300 |
 | `max_features` | Random Forest: bei jeder Frage nur aus einer zufälligen Auswahl von so vielen Kennzahlen wählen | 3 | 3, 5 oder 10 |
 | `learning_rate` | XGBoost: Gewicht, mit dem jeder neue Baum in die Prognose eingeht | 0,01 | 0,01 oder 0,1 |
@@ -414,16 +414,18 @@ GRIDS = {
   Bäumen, jeder auf 5 % der Beobachtungen. Bei rund 500 Aktien pro Monat
   wären das 25 Aktien pro Baum – zu wenig für Tiefe 3. Daher ein Baum auf
   allen Aktien (siehe 2e).
-- **`min_samples_leaf = 50`** steht in keinem der Paper: Ein Monatsmodell
-  sieht nur rund 500 Aktien; mit wenigen Aktien pro Blatt würde es vor
-  allem Rauschen lernen.
+- **`min_samples_leaf = 25`** steht in keinem der Paper: Ein Monatsmodell
+  sieht nur rund 500 Aktien; mit sehr wenigen Aktien pro Blatt würde es vor
+  allem Rauschen lernen. **Alle Ergebnisse in dieser README und in
+  `output/` sind noch mit `min_samples_leaf = 50` gerechnet**; 25 gilt ab
+  dem nächsten Lauf.
 | `n_jobs = -1` | alle Prozessorkerne nutzen (ändert nichts am Ergebnis) | | |
 | `random_state` | Startwert des Zufallsgenerators: jeder Lauf liefert dieselben Zahlen | 42 | |
 
 Abweichungen von Gu, Kelly & Xiu: Sie haben 920 Eingaben, wir 14 – deshalb
 geht `max_features` nur bis 10 statt bis in die Hunderte. XGBoost darf dort
-bis zu 1 000 Bäume haben, hier höchstens 300 (Rechenzeit). `min_samples_leaf
-= 50` gibt es im Paper nicht; es bleibt als Untergrenze, damit kein Blatt aus
+bis zu 1 000 Bäume haben, hier höchstens 300 (Rechenzeit). `min_samples_leaf`
+gibt es im Paper nicht; es bleibt als Untergrenze, damit kein Blatt aus
 einer Handvoll Aktien besteht.
 
 **Random Forest** (Bagging). Ein einzelner Baum ist instabil: Ein paar andere
@@ -701,7 +703,7 @@ Baumparameter folgen genau `RandomForestRegressor` (`bootstrap=True`):
 | --- | --- | --- |
 | Größe der Bootstrap-Stichprobe | *n* Zeilen mit Zurücklegen (`max_samples=None`) | gleich |
 | Wie die Stichprobe eingeht | jede Zeile mit ihrer Häufigkeit als Gewicht (`sample_weight`), nicht gezogene mit Gewicht 0 | gleich |
-| `min_samples_leaf = 50` | zählt verschiedene gezogene Aktien, nicht doppelt gezogene Kopien | gleich |
+| `min_samples_leaf` | zählt verschiedene gezogene Aktien, nicht doppelt gezogene Kopien | gleich |
 | Startwerte | je Baum `randint` aus `RandomState(random_state)`; derselbe Wert für Stichprobe und Baum | gleich |
 | Anzahl Kennzahlen bei einem Anteil | `max(1, int(Anteil × 14))` | gleich (7 von 14) |
 | Welche Kennzahlen | bei **jeder Verzweigung** neu gezogen (`max_features`) | **eine feste Teilmenge pro Investor** – gewollt, das ist die Informationsmenge aus dem Paper |

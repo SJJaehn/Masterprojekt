@@ -36,7 +36,7 @@ class Investors(BaseEstimator, RegressorMixin):
     Disagreement einer Aktie ist die Standardabweichung dieser Prognosen.
     """
 
-    def __init__(self, n_investors=100, feature_share=0.5, max_depth=3, min_samples_leaf=50, random_state=42):
+    def __init__(self, n_investors=100, feature_share=0.5, max_depth=3, min_samples_leaf=25, random_state=42):
         self.n_investors = n_investors
         self.feature_share = feature_share
         self.max_depth = max_depth
@@ -129,15 +129,16 @@ class HuberBoosting(BaseEstimator, RegressorMixin):
 #     daher 3 (etwa die Wurzel aus 14, der übliche Standard).
 #   - XGBoost: Tiefe 2, 500 Bäume, Lernrate 0,01 wie die Boosting-Variante im MFD-Paper (Tabelle C1,
 #     Konfiguration 18); alle drei Werte liegen im Raster von Gu, Kelly & Xiu. Huber-Verlust wie dort.
-#   - min_samples_leaf = 50 steht in keinem der Paper: Ein Monatsmodell sieht nur rund 500 Aktien, mit
-#     wenigen Aktien pro Blatt würde es vor allem Rauschen lernen.
+#   - min_samples_leaf = 25 steht in keinem der Paper: Ein Monatsmodell sieht nur rund 500 Aktien, mit
+#     sehr wenigen Aktien pro Blatt würde es vor allem Rauschen lernen. (Die Ergebnisse in output/
+#     sind noch mit 50 gerechnet.)
 MODELS = {
     # Benchmark: die lineare Regression aus dem Paper (ohne Hyperparameter)
     "OLS": LinearRegression(),
     # ein einzelner Entscheidungsbaum
-    "DecisionTree": DecisionTreeRegressor(max_depth=3, min_samples_leaf=50, random_state=42),
+    "DecisionTree": DecisionTreeRegressor(max_depth=3, min_samples_leaf=25, random_state=42),
     # Mittel vieler unabhängiger Bäume (Bagging); 300 Bäume wie bei Gu, Kelly & Xiu
-    "RandomForest": RandomForestRegressor(n_estimators=300, max_depth=3, min_samples_leaf=50,
+    "RandomForest": RandomForestRegressor(n_estimators=300, max_depth=3, min_samples_leaf=25,
                                           max_features=3, n_jobs=-1, random_state=42),
     # Bäume nacheinander, jeder korrigiert die Fehler der vorigen (Boosting), mit Huber-Verlust
     "XGBoost": HuberBoosting(n_estimators=500, max_depth=2, learning_rate=0.01, random_state=42),
@@ -145,13 +146,13 @@ MODELS = {
     # liefert zusätzlich die Disagreement (Standardabweichung der Investorprognosen). Im Paper ist jeder
     # Investor ein Random Forest aus 2.000 Bäumen, jeder auf 5 % der Beobachtungen: Bei rund 500 Aktien
     # pro Monat wären das 25 Aktien pro Baum - zu wenig für Tiefe 3. Daher ein Baum auf allen Aktien.
-    "Investors": Investors(n_investors=100, feature_share=0.5, max_depth=3, min_samples_leaf=50, random_state=42),
+    "Investors": Investors(n_investors=100, feature_share=0.5, max_depth=3, min_samples_leaf=25, random_state=42),
 }
 
 # Mögliche Hyperparameter, aus denen auf der Validierung gewählt wird (Gu, Kelly & Xiu 2020,
 # Internet Appendix Tabelle A.5; dort 920 statt 14 Eingaben, daher max_features nur bis 10;
 # XGBoost dort bis 1000 Bäume, hier höchstens 300).
-# Alle übrigen Einstellungen (z. B. min_samples_leaf = 50) bleiben wie in MODELS.
+# Alle übrigen Einstellungen (z. B. min_samples_leaf = 25) bleiben wie in MODELS.
 GRIDS = {
     "DecisionTree": {"max_depth": [1, 2, 3, 4, 5, 6]},
     "RandomForest": {"max_depth": [1, 2, 3, 4, 5, 6], "max_features": [3, 5, 10]},
