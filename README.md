@@ -33,6 +33,7 @@ Finance-Hintergrund geschrieben; Programmierkenntnisse sind nicht nötig.
 - [Schritt 6: Handelsstrategien](#schritt-6-handelsstrategien)
 - [Schritt 7: Entwicklung über die Zeit (Fig. 2)](#schritt-7-entwicklung-über-die-zeit-fig-2)
 - [Schritt 8: Machine Forecast Disagreement](#schritt-8-machine-forecast-disagreement)
+- [Schritt 9: Transaktionskosten](#schritt-9-transaktionskosten)
 - [Ergebnisse](#ergebnisse)
 - [Vergleich mit den Papern](#vergleich-mit-den-papern)
 - [Abgleich mit dem Paper](#abgleich-mit-dem-paper)
@@ -82,6 +83,7 @@ python summary.py grid return
 | `main.py` | **Hier anfangen.** Ein Skript, das von oben nach unten läuft: oben die Einstellungen, darunter die sieben Schritte, jeder unter einer eigenen Überschrift. |
 | `models.py` | Die Modelle mit ihren Hyperparametern, die simulierten Investoren und die beiden Schätzverfahren (Schritt 2) |
 | `util.py` | Werkzeugkasten: Datenaufbereitung, Fama-MacBeth-Regression, Newey-West-Test, Portfolios, Kennzahlen, Grafiken |
+| `transaction_costs.py` | Rechnet Schritt 9 (Transaktionskosten) für Läufe nach, die schon in `output/results/` liegen – aus den gespeicherten Prognosen, ohne neu zu schätzen |
 | `summary.py` | Liest die Ergebnisse aller Läufe einer Zielgröße und fasst sie in einer CSV und Vergleichsgrafiken zusammen (`output/results/grid/return/summary/`, `output/results/grid/rank/summary/`) |
 | `output/results/` | Ergebnisse, geordnet nach Hyperparametern (`grid`, `fixed_leaf25`, `fixed_leaf50`), Zielgröße, Prognosejahren, Universum und Schätzverfahren; jeweils mit `predicted_return/` und `investor_disagreement/` – siehe [Ausgabedateien](#ausgabedateien-in-outputresults) |
 | `data/jkp_top1000_25y_5y_rank.csv.gz` | Vorbereitete Daten (aus den 6-GB-Rohdaten des Tutors erzeugt) |
@@ -1113,6 +1115,65 @@ Faktor-Alphas; hier ist nur die Grundfunktion umgesetzt.
 
 ---
 
+## Schritt 9: Transaktionskosten
+
+Die Strategien aus Schritt 6 und 8 schichten jeden Monat um. Das kostet
+Geld, und bei Machine-Learning-Signalen oft viel: Avramov, Cheng & Metzker
+(2023, "Machine Learning versus Economic Restrictions", *Management
+Science*, Abschnitt III.D) zeigen, dass ihre Strategien nach realistischen
+Kosten kaum noch Überrendite bringen. Wir rechnen die Kosten genauso.
+
+**Kosten je Aktie.** Wie dort nach Brandt, Santa-Clara & Valkanov (2009):
+Jeder Kauf und jeder Verkauf kostet einen Anteil des gehandelten Betrags,
+
+```
+c_it = (0,006 − 0,0025 · ME_it) · T_t
+```
+
+- `ME_it`: Marktkapitalisierung, im Monat auf 0 (kleinste) bis 1 (größte
+  Aktie der Stichprobe) normiert – große Aktien sind billiger zu handeln.
+- `T_t`: Handeln war früher teurer. `T` sinkt linear von 4 im Jahr 1974
+  auf 1 im Jahr 2002 und bleibt dann bei 1 (1974 viermal so teuer wie
+  2002; 1987 ergibt das 2,6 wie im Paper).
+- Ergebnis: ab 2002 0,35 % (größte) bis 0,60 % (kleinste Aktie), 1974
+  1,40 % bis 2,40 %.
+
+```python
+def cost_per_stock(preds):
+    rank = preds.groupby(DATE)[SIZE].rank(method="average")
+    me = (rank - 1) / (preds.groupby(DATE)[SIZE].transform("count") - 1)
+    years = (preds[DATE] - pd.Timestamp("1974-01-01")).dt.days / 365.25
+    trend = np.clip(4 - 3 * years / 28, 1, 4)
+    return pd.Series((0.006 - 0.0025 * me) * trend, index=preds.index)
+```
+
+**Turnover.** Wie bei Gu, Kelly & Xiu und im Paper: Bis zum Umschichten
+haben sich die Gewichte des Vormonats mit den Renditen verschoben,
+
+```
+w̃_i = w_i,t−1 · (1 + r_i) / Σ_j w_j,t−1 · (1 + r_j)
+```
+
+und gehandelt wird `|w_it − w̃_i|` (neu dazukommende oder herausfallende
+Aktien ganz). Der Turnover einer Seite ist `½ · Σ |w_it − w̃_i|` (0 bis 1,
+für Long-Short beide Seiten, 0 bis 2). Die Kosten des Monats sind
+`Σ c_i · |w_it − w̃_i|`; sie werden von der Rendite des Monats abgezogen.
+Equal Weight wird genauso behandelt (sein Turnover ist klein, etwa 5 %).
+
+**Break-even-Kosten.** Bei welchen Kosten wäre die Bruttorendite ganz
+aufgezehrt? Das Paper teilt die Rendite durch den Turnover. Weil der
+Turnover nur die Hälfte des gehandelten Betrags ist, entspricht das den
+Kosten für Kauf und Verkauf zusammen. Vergleichbar mit `c_it` (je Kauf oder
+Verkauf) ist die Hälfte davon; wir geben beides aus.
+
+Die Auswertungen der Schritte 3–8 bleiben vor Kosten. `main.py` rechnet
+Schritt 9 am Ende jedes Laufs (`util.evaluate_costs`); für Läufe, die
+schon in `output/results/` liegen, rechnet `python transaction_costs.py`
+denselben Schritt aus den gespeicherten Prognosen nach, ohne neu zu
+schätzen.
+
+---
+
 ## Ergebnisse
 
 Ein Lauf mit Modell 3, 500 größten Aktien, 10-Jahres-Fenster,
@@ -1559,6 +1620,67 @@ Mögliche Ansatzpunkte für die Arbeit: ein anderes Raster in `GRIDS` oder
 feste Hyperparameter (`TUNE_HYPERPARAMETERS = False`) sowie Lewellens
 Modell 1 und 2 im Vergleich (`FEATURE_SET`).
 
+### Ergebnisse zu Schritt 9: Transaktionskosten
+
+Läufe mit den festen Standardwerten (`output/results/fixed_leaf25/return/`),
+500 größte Aktien, 1974–2013. Alle Läufe stehen in
+`predicted_return/transaction_costs.csv` bzw.
+`investor_disagreement/transaction_costs.csv` jedes Laufs.
+
+**Long-Short (Top 10 % gegen Bottom 10 %), in % pro Monat**
+
+| | Turnover | Kosten | Brutto | Netto | Break-even je Kauf/Verkauf |
+| --- | --- | --- | --- | --- | --- |
+| OLS, `single` | 0,58 | 1,18 | 0,70 | −0,48 | 0,60 |
+| Decision Tree, `single` | 0,80 | 1,56 | 0,39 | −1,17 | 0,24 |
+| Random Forest, `single` | 0,58 | 1,13 | 0,36 | −0,77 | 0,31 |
+| XGBoost, `single` | 0,70 | 1,39 | 0,58 | −0,81 | 0,42 |
+| Investors, `single` | 0,60 | 1,17 | 0,40 | −0,76 | 0,34 |
+| MFD, `single` | 0,70 | 1,43 | 0,16 | −1,28 | 0,11 |
+| OLS, `stacked` | 0,58 | 1,18 | 0,59 | −0,59 | 0,51 |
+| Decision Tree, `stacked` | 0,65 | 1,34 | 0,38 | −0,95 | 0,29 |
+| Random Forest, `stacked` | 0,66 | 1,31 | 0,74 | −0,56 | 0,57 |
+| XGBoost, `stacked` | 0,81 | 1,61 | 0,76 | −0,85 | 0,47 |
+| Investors, `stacked` | 0,82 | 1,62 | 0,54 | −1,08 | 0,33 |
+| MFD, `stacked` | 0,93 | 1,87 | 0,05 | −1,82 | 0,03 |
+
+(Brutto ist hier die mittlere Monatsrendite der Strategie aus Schritt 6,
+nicht die H−L-Rendite der Dezile.)
+
+**Long (Top 10 %) nach Kosten, Rendite p. a. / Sharpe Ratio**
+
+| | `single` | `stacked` |
+| --- | --- | --- |
+| OLS | 2,62 % / 0,23 | 2,30 % / 0,22 |
+| Decision Tree | −1,03 % / 0,06 | 1,30 % / 0,16 |
+| Random Forest | 0,53 % / 0,13 | 3,55 % / 0,27 |
+| XGBoost | 0,48 % / 0,13 | 1,19 % / 0,16 |
+| Investors | 0,34 % / 0,12 | −0,47 % / 0,09 |
+| MFD | −0,35 % / 0,05 | −4,92 % / −0,26 |
+| Equal Weight | 5,79 % / 0,42 | 5,79 % / 0,42 |
+
+- **Nach Kosten verliert jede Long-Short-Strategie Geld**, in allen Läufen
+  (auch mit Validierung, mit Rängen, bei den large stocks und bis 2024).
+  Der Turnover liegt bei 58–93 % pro Monat: Die Hälfte der Positionen
+  wird jeden Monat getauscht – ähnlich wie im Paper (87–98 % für GKX).
+- **Die Break-even-Kosten liegen bei 0,03–0,60 % je Kauf oder Verkauf**,
+  die angesetzten Kosten im Schnitt deutlich darüber (1974–2001 etwa
+  0,4–2,4 %, danach 0,35–0,60 %). Am robustesten sind OLS `single` (0,60 %)
+  und der gestapelte Random Forest (0,57 %); beide lägen erst ab 2002 im
+  Bereich der angesetzten Kosten.
+- **Auch Long allein liegt nach Kosten klar unter Equal Weight**
+  (5,79 % p. a., Sharpe 0,42): Equal Weight schichtet kaum um (Turnover
+  5 %), die Long-Strategien zu 30–42 %.
+- Die MFD-Strategien schichten am meisten um und haben brutto kaum
+  Rendite; gestapelt ist jeder Investor nur ein Baum, der jeden Monat neu
+  geschätzt wird, sodass sich die Disagreement stark von Monat zu Monat
+  ändert.
+- Das passt zu Avramov, Cheng & Metzker: In ihrer Stichprobe ohne
+  Microcaps liegen die Break-even-Kosten unter den angesetzten Kosten;
+  hier, nur mit großen Aktien, ebenso. Die
+  Kosten hier sind grobe Durchschnittswerte; ein großer institutioneller
+  Investor handelt billiger, ein kleiner teurer.
+
 ---
 
 ## Vergleich mit den Papern
@@ -1868,6 +1990,9 @@ output/results/
 | `sorted_portfolios.csv` | Tabelle 6 |
 | `feature_importance.csv` | Feature Importances der Bäume |
 | `hyperparameters.csv` | gewählte Hyperparameter je Modell und Jahr mit dem Validierungsfehler (siehe 2i) |
+| `transaction_costs.csv` | Schritt 9: Turnover, Kosten, Rendite brutto und netto, Break-even-Kosten je Strategie und Modell (plus Equal Weight) |
+| `strategy_returns_net.csv`, `performance_net.csv` | Schritt 9: Monatsrenditen und Kennzahlen der Strategien nach Kosten |
+| `performance_long_net.png`, `performance_short_net.png`, `performance_long-short_net.png` | Schritt 9: Wertentwicklung nach Kosten (Modelle ohne Investors, MFD, Equal Weight) |
 | `strategy_returns.csv`, `performance.csv` | Long, Short und Long-Short je Modell plus Equal Weight (Schritt 6) |
 | `performance_long.png`, `performance_short.png`, `performance_long-short.png` | Wertentwicklung je Strategie: die Modelle ohne Investors, dazu die MFD-Strategie und Equal Weight |
 | `time_variation_monthly.csv`, `time_variation_trends.csv` | Schritt 7: Kennzahlen pro Monat, Hälftenvergleich und Trendtest |
@@ -1882,6 +2007,7 @@ output/results/
 | `sorted_portfolios.csv` | Dezile nach MFD (High = geringste Disagreement) |
 | `strategy_returns.csv`, `performance.csv`, `performance.png` | Long die 10 % mit der geringsten, Short die 10 % mit der höchsten MFD, beides; gegen Equal Weight |
 | `time_variation_monthly.csv`, `time_variation_trends.csv` | H−L, Long-Seite und Short-Seite pro Monat, Trendtests |
+| `transaction_costs.csv`, `strategy_returns_net.csv`, `performance_net.csv` | Schritt 9 für die MFD-Strategien |
 | `time_variation_12m.png`, `time_variation_120m.png` | gleitende Mittelwerte |
 
 ---
@@ -1906,5 +2032,7 @@ output/results/
 - Lewellen, J. (2015): The Cross-Section of Expected Stock Returns. *Critical Finance Review* 4, 1–44.
 - Gu, S., Kelly, B., Xiu, D. (2020): Empirical Asset Pricing via Machine Learning. *Review of Financial Studies* 33, 2223–2273.
 - Bali, T. G., Kelly, B. T., Mörke, M., Rahman, J. (2026): Machine Forecast Disagreement. *Review of Financial Studies*, Advance Access. https://doi.org/10.1093/rfs/hhag042 (nicht im Repository, da urheberrechtlich geschützt; über die Universitätsbibliothek abrufbar)
+- Avramov, D., Cheng, S., Metzker, L. (2023): Machine Learning versus Economic Restrictions: Evidence from Stock Return Predictability. *Management Science* (2023). [SSRN 3450322](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3450322) (Transaktionskosten, Schritt 9).
+- Brandt, M. W., Santa-Clara, P., Valkanov, R. (2009): Parametric Portfolio Policies: Exploiting Characteristics in the Cross-Section of Equity Returns. *Review of Financial Studies* 22, 3411–3447.
 - McLean, R. D., Pontiff, J. (2016): Does Academic Research Destroy Stock Return Predictability? *Journal of Finance* 71, 5–32.
 - Jensen, T. I., Kelly, B., Pedersen, L. H. (2023): Is There a Replication Crisis in Finance? *Journal of Finance* 78, 2465–2518.

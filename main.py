@@ -383,3 +383,19 @@ for label in STRATEGIES:
     util.plot_performance(lines.assign(**{"Equal Weight": equal_weight}),
                           f"{label}: models and disagreement (MFD) vs. equal weight ({period})",
                           os.path.join(PRED_DIR, f"performance_{label.lower()}.png"))
+
+
+# =============================================================================
+# 9. Transaktionskosten (Avramov, Cheng & Metzker, 2023): die Strategien aus Schritt 6 und 8 nach Kosten
+# =============================================================================
+# Kosten je Kauf oder Verkauf nach Brandt, Santa-Clara & Valkanov (2009): 0,35 % (größte) bis 0,60 %
+# (kleinste Aktie), vor 2002 höher (1974 das Vierfache). Turnover mit verschobenen Gewichten wie bei
+# Gu, Kelly & Xiu. Die Auswertungen der Schritte 3-8 bleiben vor Kosten.
+util.print_section("9. Trading strategies after transaction costs")
+cost_results = util.evaluate_costs(preds, MODELS_TO_RUN, STRATEGIES, PRED_DIR, MFD_DIR, period)
+for folder, (net_returns, cost_table) in cost_results.items():
+    util.print_table(cost_table, decimals=3)
+print("  Turnover: one side per month (Long-Short: both sides, 0-2) | Cost and returns in % per month\n"
+      "  Break-even one-way cost: cost per buy or sell that would use up the gross return\n"
+      "  Break-even return / turnover: as in Avramov, Cheng & Metzker (equals a round-trip cost)")
+print(f"\n  Results saved to '{PRED_DIR}' and '{MFD_DIR}'")

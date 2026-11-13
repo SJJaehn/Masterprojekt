@@ -9,6 +9,7 @@ SSRN-Fassung im Hauptordner (`ssrn-2511246.pdf`).
 | Lewellen, J. (2015): The Cross Section of Expected Stock Returns. *Critical Finance Review* 4(1), 1–44. | [SSRN 2511246](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2511246) | Replikation: Fama-MacBeth-Prognose (`"single"`), Tabellen 2, 3, 6, Fig. 2 |
 | Gu, S., Kelly, B., Xiu, D. (2020): Empirical Asset Pricing via Machine Learning. *Review of Financial Studies* 33(5), 2223–2274. | [doi:10.1093/rfs/hhaa009](https://doi.org/10.1093/rfs/hhaa009), Internet Appendix als "Supplementary data" auf der Verlagsseite | gestapelte Schätzung (`"stacked"`), Bäume, R² OOS |
 | Bali, T. G., Kelly, B. T., Mörke, M., Rahman, J. (2026): Machine Forecast Disagreement. *Review of Financial Studies*, Advance Article. | [doi:10.1093/rfs/hhag042](https://doi.org/10.1093/rfs/hhag042) | Investors und MFD (Schritt 8) |
+| Avramov, D., Cheng, S., Metzker, L. (2023): Machine Learning versus Economic Restrictions: Evidence from Stock Return Predictability. *Management Science*. | [SSRN 3450322](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3450322) | Transaktionskosten (Schritt 9) |
 
 ## Stellen, auf die sich das Projekt stützt
 
@@ -23,3 +24,8 @@ SSRN-Fassung im Hauptordner (`ssrn-2511246.pdf`).
 **Bali, Kelly, Mörke & Rahman (2026)**
 - Abschnitt 1: MFD = Standardabweichung der Prognosen von K Investoren (Gl. 4).
 - Abschnitt 2 und Anhang B, Tabelle B1: 100 Investoren mit je 50 % der 153 Kennzahlen; je Investor ein Random Forest (2 000 Bäume, Tiefe 3, je 5 % der Beobachtungen und Kennzahlen); 10 Jahre rollierend, neu trainiert alle 12 Monate; Renditen im Training je 1 % winsorisiert.
+
+**Avramov, Cheng & Metzker (2023)**
+- Abschnitt III.D: Turnover wie bei Gu, Kelly & Xiu mit verschobenen Gewichten, je Seite ½ Σ |w_it − w̃_i| (Long-Short 0 bis 2); Break-even-Kosten = Rendite / Turnover.
+- Abschnitt III.D nach Brandt, Santa-Clara & Valkanov (2009): einfache Kosten c_it = (0,006 − 0,0025 · ME_it) · T_t, ME auf 0 bis 1 normiert, T sinkt linear bis 2002 auf 1 (1987: 2,6; 1974 viermal so hoch wie 2002).
+- Turnover der Long-Short-Portfolios 87–98 % pro Monat (GKX-Methode); Break-even-Kosten ohne Microcaps 0,26–0,54 %.

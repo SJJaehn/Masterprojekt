@@ -346,6 +346,140 @@ def performance_metrics(returns):
 
 
 # =============================================================================
+# Transaktionskosten (Avramov, Cheng & Metzker, 2023, Abschnitt III.D)
+# =============================================================================
+
+def cost_per_stock(preds):
+    """Einfache (one-way) Transaktionskosten je Aktie und Monat als Anteil des gehandelten Betrags.
+
+    Wie bei Avramov, Cheng & Metzker nach Brandt, Santa-Clara & Valkanov (2009):
+        c_it = z_it * T_t,   z_it = 0,006 - 0,0025 * ME_it
+    - ME_it: Marktkapitalisierung, im Monat auf 0 (kleinste) bis 1 (größte Aktie) normiert, hier
+      über den Rang. Große Aktien sind billiger zu handeln.
+    - T_t: Kosten waren früher höher. T sinkt linear von 4 im Jahr 1974 auf 1 im Jahr 2002 und
+      bleibt danach bei 1 (1974 viermal so teuer wie 2002; 1987 ergibt das 2,6 wie im Paper).
+    Ergebnis: 2002 und später 0,60 % für die kleinste und 0,35 % für die größte Aktie, 1974 das
+    Vierfache.
+    """
+    rank = preds.groupby(DATE)[SIZE].rank(method="average")
+    me = (rank - 1) / (preds.groupby(DATE)[SIZE].transform("count") - 1)
+    years = (preds[DATE] - pd.Timestamp("1974-01-01")).dt.days / 365.25
+    trend = np.clip(4 - 3 * years / 28, 1, 4)
+    return pd.Series((0.006 - 0.0025 * me) * trend, index=preds.index)
+
+
+def leg_costs(weights, preds, cost):
+    """Turnover und Kosten einer Seite (long oder short) für jeden Monat.
+
+    `weights`: Monat -> Gewichte der Aktien (Summe 1). Vor dem Umschichten im Monat t haben sich
+    die Gewichte vom Vormonat mit den Renditen verschoben (Gu, Kelly & Xiu; Avramov et al.):
+        w~_i = w_i,t-1 * (1 + r_i) / sum_j w_j,t-1 * (1 + r_j)
+    Gehandelt wird |w_it - w~_i|; Aktien, die neu dazukommen oder herausfallen, ganz.
+    - Turnover (eine Seite, 0 bis 1) = 1/2 * Summe |w_it - w~_i|
+    - Kosten = Summe c_i * |w_it - w~_i| (jeder Kauf und jeder Verkauf kostet c_i);
+      Aktien, die im Monat t nicht mehr in der Stichprobe sind, mit ihren Kosten aus t-1.
+    Im ersten Monat wird das Portfolio aus Bargeld aufgebaut.
+    """
+    ret = preds.set_index([DATE, ID])[RET]
+    c = cost.set_axis(pd.MultiIndex.from_frame(preds[[DATE, ID]]))
+    turnover, costs = {}, {}
+    previous, previous_date = None, None
+    for date, w in weights.items():
+        if previous is None:
+            drifted = pd.Series(dtype=float)
+        else:
+            grown = previous * (1 + ret.loc[previous_date].reindex(previous.index).fillna(0))
+            drifted = grown / grown.sum()
+        trade = w.sub(drifted, fill_value=0).abs()
+        c_now = c.loc[date].reindex(trade.index)
+        if previous is not None:  # herausgefallene Aktien: Kosten aus dem Vormonat
+            c_now = c_now.fillna(c.loc[previous_date].reindex(trade.index))
+        turnover[date] = trade.sum() / 2
+        costs[date] = (trade * c_now.fillna(c_now.mean())).sum()
+        previous, previous_date = w, date
+    return pd.Series(turnover), pd.Series(costs)
+
+
+def strategy_weights(preds, model, pct, side, high_is_good=True):
+    """Gleichgewichtete Positionen einer Seite für jeden Monat, dieselbe Auswahl wie strategy_returns."""
+    weights = {}
+    for date, g in preds.groupby(DATE):
+        ordered = g.sort_values(model, ascending=not high_is_good, kind="stable")[ID]
+        n = max(1, int(round(len(ordered) * pct)))
+        chosen = ordered.iloc[:n] if side == "long" else ordered.iloc[-n:]
+        weights[date] = pd.Series(1 / n, index=chosen.to_numpy())
+    return weights
+
+
+def net_of_costs(preds, gross, signals, strategies, high_is_good=True):
+    """Renditen nach Transaktionskosten, Turnover und Kosten für alle Strategien und Equal Weight.
+
+    `gross` ist die Ausgabe von backtest(). Rückgabe: (Nettorenditen wie `gross`, Tabelle mit
+    Turnover, Kosten und Break-even-Kosten je Strategie und Signal).
+    """
+    cost = cost_per_stock(preds)
+    sides = {}  # (Signal, Seite, Anteil) -> (Turnover, Kosten) pro Monat
+    for name in signals:
+        for long_pct, short_pct in strategies.values():
+            for side, pct in [("long", long_pct), ("short", short_pct)]:
+                if pct > 0 and (name, side, pct) not in sides:
+                    sides[(name, side, pct)] = leg_costs(strategy_weights(preds, name, pct, side, high_is_good),
+                                                         preds, cost)
+    everyone = {date: pd.Series(1 / len(g), index=g[ID].to_numpy()) for date, g in preds.groupby(DATE)}
+    benchmark = leg_costs(everyone, preds, cost)
+
+    net, rows = {}, []
+    for (label, name), returns in gross.items():
+        if label == "Benchmark":
+            turnover, costs = benchmark
+        else:
+            long_pct, short_pct = strategies[label]
+            parts = [sides[(name, s, pct)] for s, pct in [("long", long_pct), ("short", short_pct)] if pct > 0]
+            turnover = sum(p[0] for p in parts)  # Long-Short: beide Seiten (0 bis 2)
+            costs = sum(p[1] for p in parts)
+        net[(label, name)] = returns - costs.reindex(returns.index)
+        rows.append({"strategy": label, "signal": name,
+                     "Turnover": turnover.mean(),
+                     "Cost (% p.m.)": costs.mean() * 100,
+                     "Gross return (% p.m.)": returns.mean() * 100,
+                     "Net return (% p.m.)": net[(label, name)].mean() * 100,
+                     # Kosten je Kauf bzw. Verkauf, bei denen die Bruttorendite ganz aufgezehrt wäre
+                     "Break-even one-way cost (%)": returns.mean() / (2 * turnover.mean()) * 100,
+                     # wie im Paper: Rendite / Turnover (entspricht den Kosten für Kauf und Verkauf zusammen)
+                     "Break-even return / turnover (%)": returns.mean() / turnover.mean() * 100})
+    return pd.DataFrame(net), pd.DataFrame(rows).set_index(["strategy", "signal"])
+
+
+def evaluate_costs(preds, signals, strategies, pred_dir, mfd_dir, period):
+    """Schritt 6b: Strategien nach Transaktionskosten, für die Modelle und (falls vorhanden) die MFD.
+
+    Speichert in `pred_dir` bzw. `mfd_dir`: transaction_costs.csv (Turnover, Kosten, Break-even),
+    strategy_returns_net.csv, performance_net.csv und performance_<Strategie>_net.png (die Modelle
+    ohne Investors, dazu die MFD-Strategie und Equal Weight, alle nach Kosten).
+    """
+    gross = backtest(preds, signals, strategies)
+    net, table = net_of_costs(preds, gross, signals, strategies)
+    results = {pred_dir: (net, table)}
+    if "MFD" in preds:
+        mfd_gross = backtest(preds, ["MFD"], strategies, high_is_good=False)
+        results[mfd_dir] = net_of_costs(preds, mfd_gross, ["MFD"], strategies, high_is_good=False)
+    for folder, (net_returns, cost_table) in results.items():
+        performance = pd.DataFrame({column: performance_metrics(net_returns[column])
+                                    for column in net_returns}).T
+        cost_table.to_csv(os.path.join(folder, "transaction_costs.csv"))
+        net_returns.to_csv(os.path.join(folder, "strategy_returns_net.csv"))
+        performance.to_csv(os.path.join(folder, "performance_net.csv"))
+    for label in strategies:
+        lines = net[label].drop(columns="Investors", errors="ignore")
+        if mfd_dir in results:
+            lines = lines.assign(MFD=results[mfd_dir][0][(label, "MFD")])
+        plot_performance(lines.assign(**{"Equal Weight": net[("Benchmark", "Equal Weight")]}),
+                         f"{label} after transaction costs: models and MFD vs. equal weight ({period})",
+                         os.path.join(pred_dir, f"performance_{label.lower()}_net.png"))
+    return results
+
+
+# =============================================================================
 # Ausgabe
 # =============================================================================
 
